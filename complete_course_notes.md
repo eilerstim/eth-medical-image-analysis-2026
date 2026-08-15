@@ -1651,3 +1651,341 @@ $$L(x) = \arg\max_l\ \frac{\sum_i w_i\, \delta(\text{label}_i = l)}{\sum_i w_i}$
 The demo thus operationalizes exactly the lecture concepts: single-atlas propagation → fusion strategies (majority/global/local) → patch-based NLM label fusion with patch size, search window, and bandwidth as the governing parameters.
 
 ---
+# 12. Lecture 9 — Convolutional Neural Networks (`Lecture09_CNN.pdf`, 72 slides)
+
+*Ertunc Erdil (slide date printed: April 2025)*
+
+## 12.1 Introduction to neural networks
+
+- Supervised learning setting: an unknown true function $y = f^*(x)$ is approximated by a parametric model $g(x; \theta)$, trained by
+
+$$\theta^* = \arg\min_\theta\ \mathcal{L}(y,\ g(x;\theta)) + R(\theta)$$
+
+- Deep networks are **compositions of layers**: $g = g_L \circ \cdots \circ g_2 \circ g_1(x)$.
+- **Perceptron** (single layer): $g(x;\theta) = g_1(x; W, b) = \sigma(Wx + b)$.
+- **Multi-layer perceptron (MLP)**: $h^l = \sigma_l(W_l h^{l-1} + b_l)$, $h^l \in \mathbb{R}^{d_l \times 1}$, with $h^0 = x$ and $h^L = g(x;\theta)$; for binary classification $\sigma_L$ = **sigmoid**; for multi-class $\sigma_L$ = **softmax**. (A slide surveys common activation functions.)
+- This lecture: **CNNs** — a single layer replaces the matrix product by convolution:
+
+$$\text{MLP: } h^l = \sigma_l(W_l h^{l-1} + b_l) \qquad \text{CNN: } h^l = \sigma_l(W_l * h^{l-1} + b_l)$$
+
+**Outline**: motivation · convolutional layers · strides · a simple image-classification CNN · pooling.
+
+## 12.2 Motivation — problems of MLPs on grid-like data
+
+Feeding a **vectorized image** into an MLP raises **three issues** with the linear transformation $W_l h^{l-1}$:
+
+1. **Fully connected links lead to too many parameters.** Example: $x \in \mathbb{R}^{N_0 \times M_0}$ with $(N_0, M_0) = (64, 64)$ and $d_1 = 128$ hidden units → $W_1 \in \mathbb{R}^{d_1 \times (N_0 M_0)}$ = $64 \times 64 \times 128 = 524{,}288$ parameters (without biases) — and this even *compresses* from 4096 to 128 dimensions, whereas (illustrated with the $d_1 = 1, 2, 3$ toy example) we actually want to **lift the data to a higher dimension**.
+2. **Images are composed of a hierarchy of local statistics.**
+3. **Lack of translation invariance.**
+
+Applications shown: **image classification** — diabetic retinopathy grading (Healthy / Mild / Moderate / Severe / Proliferative) [Pratt et al., *Procedia Computer Science* 2016]; **age regression** from images (17 / 30 / 74 / 81 years old); **image segmentation** — brain tumor segmentation [Menze et al., "The multimodal brain tumor image segmentation benchmark (BRATS)", *IEEE TMI* 2014].
+
+## 12.3 Convolutional layers
+
+### The convolution operator
+
+- 1D, two functions $f(t), g(t)$: continuous $f * g(t) = \int f(\tau) g(t - \tau)\, d\tau$; discrete $f*g(t) = \sum_{\tau=-\infty}^{+\infty} f(\tau) g(t-\tau)$. In words: the integral of the product of two functions **after one is reversed and shifted**.
+- 2D, image $I(x,y)$ and kernel $k(x,y)$: $I * k(x,y) = \sum_m \sum_n I(m,n)\, k(x-m, y-n)$.
+- Convolution is **commutative**: $I * k = k * I = \sum_m\sum_n I(x-m, y-n) k(m,n)$; commutativity is *the only reason* one reverses a function before shifting — in practice not very useful.
+- **Convolution vs. cross-correlation**: cross-correlation is $\sum_m \sum_n I(x+m, y+n)\, k(m,n)$ (no flip). **In practice, many ML libraries implement cross-correlation under the name "convolution."** Kernels are also called convolutional *weights* or *filters*. (Sliding-kernel visualization over an image with a 3×3 kernel `a…j`.)
+
+### Convolutions instead of projections
+
+Fully connected activation vs. convolutional activation:
+
+$$a_{l,k} = \sum_j w_{l,kj}\, h_{l-1,j} + b_{l,k} \qquad\longrightarrow\qquad a_{l,k} = \sum_j w_{l,kj} * h_{l-1,j} + b_{l,k}$$
+
+- FC: each $h_{l-1,j}$ is a *number* (one neuron); separate weight links every neuron to every activation; high dimensions → huge weight counts.
+- CNN: each $h_{l-1,j}$ is an **image of neurons** — the $j$-th **channel** at layer $l-1$; a separate **convolutional kernel** $w_{l,kj}$ links channel $j$ to output channel $k$, and the **same kernel applies to the entire image of neurons** (weight sharing). Nonlinearities after activations remain as in MLPs. A "vector of neurons" (FC layer) becomes an $N_l \times M_l$ **channel**, and a layer has $d_l$ channels.
+
+### Layer sizes and parameter counts
+
+- First layer, input $x \in \mathbb{R}^{3\times N_0 \times M_0}$:
+  - Fully connected: $W_1 \in \mathbb{R}^{d_1 \times (3 N_0 M_0)}$, output $h^1 \in \mathbb{R}^{d_1}$.
+  - Convolutional: kernels $w_{1,j} \in \mathbb{R}^{3 \times k_1 \times k_2}$, $W_1 \in \mathbb{R}^{d_1 \times 3 \times k_1 \times k_2}$, output $h^1 \in \mathbb{R}^{d_1 \times N_1 \times M_1}$.
+- Intermediate layer: FC $W_l \in \mathbb{R}^{d_l \times d_{l-1}}$; convolutional $W_l \in \mathbb{R}^{d_l \times d_{l-1} \times k_1 \times k_2}$ mapping $h^{l-1} \in \mathbb{R}^{d_{l-1}\times N_{l-1} \times M_{l-1}} \to h^l \in \mathbb{R}^{d_l \times N_l \times M_l}$.
+- Takeaway (stated twice): **"Larger layers with sparser connections with lower number of parameters."**
+- **Local vs. global information gathering**: an MLP must represent the entire image in a single vector (needs large $d_1$); a CNN represents **local neighborhoods** in vectors — no need for large $d_1$ to retain information.
+
+### Boundary handling — valid vs. same convolution
+
+When the kernel sits inside the image there's no problem; at the boundary, out-of-bounds values are undefined. Two options:
+
+1. **Valid convolution** — evaluate only where all elements are defined; the kernel is evaluated within the interior area; you **lose pixels at each end**: $N_l = N_{l-1} - k_1 + 1$, $M_l = M_{l-1} - k_2 + 1$.
+2. **Same convolution (padding)** — pad the boundaries so the output has the same size: pad to $(N_{l-1}+k_1-1)\times(M_{l-1}+k_2-1)$ so $N_l = N_{l-1}, M_l = M_{l-1}$. The pad **value** is a parameter — zero padding is common, but symmetric padding also exists.
+
+**Exercise slide** (parameter counting): a classification network with 16 output classes; compare $x \in \mathbb{R}^{64\times64} \to 256 \to 128 \to 64 \to 16$ where all links are fully connected (one bias per layer) versus the same architecture where the first three links are **valid 5×5 convolutions** (one bias per channel, arrows FC) — count parameters and hidden neurons per layer.
+
+### Receptive fields and feature hierarchies
+
+- Convolutional layers **hierarchically aggregate local spatial features** — as layers progress, more global information is encoded; the network extracts task-specific features (receptive field grows with depth).
+- Simplified example: layer 1 = derivative filters followed by ReLU; layer 2 channels = weighted sums of 2nd-order derivatives.
+
+### Translation invariance and equivariance
+
+- Translation invariance is **not native to fully connected networks**: a translated object produces very different hidden activations, and the rest of the network sees different activations. In many vision applications translated inputs should give identical outputs.
+- Quiz: applications where two translated images should give (1) *identical outputs*: **recognition**; (2) *different outputs*: **detection, localization, segmentation** — though for these we want the *same output at a different location*.
+- Could you teach an FC network invariance? Yes, by applying **random translations** (augmentation) of each training image — "not the most elegant way!"
+- **Convolution helps** — it is **translation equivariant**: applying a transformation to the input yields the same result as applying it to the output, $f(T(x)) = T(f(x))$. Convolution is *equivariant*, but **not invariant**: $f(T(x)) \ne f(x)$.
+
+## 12.4 Strides
+
+- Problem: with 5×5 kernels and valid convolutions, going from 128×128 down to a 1×1 output (a recognition system with #channels = #classes) shrinks only by 4 pixels per layer (128→124→120→116→…) — you would need **many layers or very large kernels**.
+- **Strided convolution**: instead of moving the kernel one pixel at a time, skip $s$ pixels. Channel size becomes
+
+$$N_l = \left\lceil \frac{N_{l-1} - k_1}{s_1} \right\rceil, \qquad M_l = \left\lceil \frac{M_{l-1} - k_2}{s_2} \right\rceil$$
+
+- With 5×5 kernels, valid padding and stride 2: 128×128 → 62×62 → 29×29 → 12×12 — the dimension **drops very quickly**; higher stride → faster drop.
+- Caveats: **you lose information** (more with higher stride); **you do not gain translation invariance**; if used, stride 2 in all directions is most common.
+- Summary: strides help with dimensionality reduction but not much with translation invariance.
+
+## 12.5 Pooling
+
+- **Pool information in a neighborhood**: represent the region with one number (summarize); applied to **each channel separately**.
+- Variants: **max-pooling** (maximum activation — most common), **min-pooling** (minimum), both non-linear (like median filtering); **average pooling** is a linear operator.
+- **Max pooling** properties:
+  - Represents the entire region by the neuron with the highest activation.
+  - **Partial local translation invariance**: (worked example with a 2×2 pooled block) the max value 617 can be at any neuron within the highlighted area and the pooled value will not change. It does **not** give complete translation invariance.
+  - Often applied with **stride equal to the pooling kernel size**; the pooling kernel has **no learnable parameters**.
+  - **Substantial dimensionality reduction**: even a 2×2 pooling kernel halves the image side; larger kernels reduce more. It is a **non-linear** dimensionality reduction — only the most prominent activation is transmitted to the next layer.
+  - More advanced pooling mechanisms exist, e.g., **CapsuleNets** [Sabour, Frosst and Hinton 2017].
+- Scoreboard: with convolution + pooling, the three MLP issues are addressed — parameters (solved by weight sharing), hierarchy of local statistics (solved by stacked convolutions), translation invariance (**partially solved** by pooling).
+
+## 12.6 A simple image classification CNN
+
+Architecture pattern:
+
+> [Convolution → non-linearity → max-pooling] × repeated → fully connected layer(s) (transformation → non-linearity) → **output layer with #neurons = #classes**.
+
+- Local features are extracted and aggregated throughout the network; the **last layers "see" the entire image** and their features encode global information.
+- The final convolutional channel must see large areas of the image so semantic labels can be determined — due to preceding convolutions and poolings, each neuron there has a **large receptive field**.
+
+---
+# 13. Lecture 10 — Attention and Transformers (`Lecture10_Transformers.pdf`, 51 slides)
+
+*Ertunc Erdil, April 2026*
+
+**Framing**: attention is the fundamental block of Transformers. Historical context slides (credit: Lucas Beyer): the classical landscape had **one architecture per "community"** (CNNs for vision [Aphex34/Wikipedia figure], RNN/LSTM for sequences [GChe/Wikipedia figure]); the **Transformer "took over" one community at a time** [architecture figure from the "Attention is All You Need" paper].
+
+**Outline**: motivation · self-attention · scaled self-attention · transformer layers · multi-head self-attention · positional encoding · transformers for images.
+
+## 13.1 Motivation
+
+Two example sentences about the word **"bank"**:
+
+- *"I swam across the river to get to the other side of the bank"*
+- *"I walk across the road to get cash from the bank"*
+
+**Some words are more important than others** for disambiguating meaning. A standard network (an MLP $h = \sigma(Wx + b)$ applied per word) processes each token independently. **Attention** instead builds the representation of "bank" as a weighted combination of context words: $a_1 \cdot \text{cash} + a_2 \cdot \text{bank}$, or $a_1 \cdot \text{swam} + a_2 \cdot \text{river} + a_3 \cdot \text{bank}$.
+
+## 13.2 Self-attention (built up in stages)
+
+Input tokens/embeddings $x_1, \dots, x_N$, $x_i \in \mathbb{R}^{D\times1}$; output tokens $y_i$. **Attention should be a function of all tokens** $x_1, \dots, x_N$:
+
+$$y_i = \mathrm{Attention}(x_1, \dots, x_i, \dots, x_N) = \sum_{j=1}^{N} a_{ij}\, x_j, \qquad a_{ij} \ge 0, \quad \sum_{j=1}^N a_{ij} = 1$$
+
+**Stage 1 — parameter-free dot-product attention**:
+
+$$a_{ij} = \frac{\exp(x_i^T x_j)}{\sum_{j'=1}^{N} \exp(x_i^T x_{j'})} \qquad \Longleftrightarrow \qquad Y = \mathrm{Softmax}(XX^T)\, X$$
+
+with $X \in \mathbb{R}^{N \times D}$ ($N$ tokens × $D$ features); **softmax is applied to each row separately** (emphasized repeatedly).
+
+*Issues*: (1) **no capacity to learn from data**; (2) each feature value within a token plays an **equal role** in determining attention coefficients.
+
+**Stage 2 — add learnable parameters**: transform $\tilde X = XU$, $U \in \mathbb{R}^{D\times D}$:
+
+$$Y = \mathrm{Softmax}(\tilde X \tilde X^T)\, \tilde X = \mathrm{Softmax}(XUU^TX^T)\, XU$$
+
+Learnable parameters help select more useful features. *Remaining issue*: $XUU^TX^T$ is **symmetric** — but real attention relationships are not: in the sentence example, "swam" should connect strongly to "bank" (river bank) while the reverse connection may be weak.
+
+**Stage 3 — different learnable parameters for Key, Query, Value**:
+
+$$K = XW_K\ (W_K \in \mathbb{R}^{D\times D_K}), \quad Q = XW_Q\ (W_Q \in \mathbb{R}^{D\times D_Q}), \quad V = XW_V\ (W_V \in \mathbb{R}^{D\times D_V})$$
+
+$$Y = \mathrm{Softmax}(QK^T)\, V$$
+
+Now $QK^T$ is **asymmetric**.
+
+**Key/Query/Value terminology from information retrieval** — movie-database example: keys = the catalog entries (Titanic: romance/drama, 1997, DiCaprio & Winslet; Inception: sci-fi/thriller, 2010, DiCaprio; Black Swan: drama/thriller, 2010, Portman; Mad Max: action/adventure, 2015, Hardy & Theron; The Grand Budapest Hotel: comedy/drama, 2014, Fiennes); query = "genre: sci-fi, year: after 2000s, leading actor: Leonardo DiCaprio"; values = the movie files themselves (`Titanic.avi`, `Inception.avi`, …). Classic retrieval does **hard attention** (select the single most similar movie); transformers **generalize to soft attention**, using continuous variables to measure the degree of match between query and keys.
+
+## 13.3 Scaled self-attention
+
+$$Y = \mathrm{Softmax}\!\left(\frac{QK^T}{\sqrt{D_K}}\right) V$$
+
+- Motivation: the gradients of softmax become **exponentially small for very small or large inputs** (saturation).
+- Justification of the scale: if $Q, K \sim \mathcal{N}(0, I)$ then $\mathrm{Var}(QK^T) = D_K$ — dividing by $\sqrt{D_K}$ normalizes the variance.
+
+## 13.4 Multi-head self-attention
+
+- Analogy to **multiple channels/filters in CNNs**: there may be *different useful features to extract at each layer* → CNNs use multiple filters; likewise **there might be multiple patterns that require attention → use multiple attention heads**.
+- Per head $h \in [1, H]$: $K_h = XW_{K_h}$, $Q_h = XW_{Q_h}$, $V_h = XW_{V_h}$;
+
+$$H_h = \mathrm{Attention}(Q_h, K_h, V_h) = \mathrm{Softmax}\!\left(\frac{Q_h K_h^T}{\sqrt{D_{K_h}}}\right) V_h$$
+
+- Combine heads: $Y = \mathrm{Concat}(H_1, \dots, H_H)\, W_0$ with $\mathrm{Concat}(\cdot) \in \mathbb{R}^{N \times H D_V}$ and $W_0 \in \mathbb{R}^{HD_V \times D}$. [Figure credit: *Deep Learning: Foundations and Concepts*, C. Bishop & H. Bishop.]
+
+## 13.5 Transformer layer
+
+Block structure (input $X \in \mathbb{R}^{N\times D}$ → output $Y \in \mathbb{R}^{N\times D}$):
+
+> $X$ → **multi-head self-attention** → **(+) residual connection** → **LayerNorm** → **MLP (shared for each token)** → **(+) residual connection** → **LayerNorm** → $Y$
+
+(i.e., two sub-blocks — attention and per-token MLP — each with a residual connection and layer normalization.)
+
+## 13.6 Positional encoding
+
+- **Transformers are equivariant with respect to input permutations** (compare: CNNs are translation equivariant, $f(P(X)) = P(f(X))$). Consequence: *"I bought an apple watch"* and *"watch an apple I bought"* are **the same for a transformer**!
+- Worked example: computing attention for token $q_4$ ("apple") against keys $k_1 \dots k_5$ gives scores $a_{4,1} \dots a_{4,5}$, scaled softmax $a'_{4,j}$, output $\mathrm{Attention}(q_4, K, V) = \sum_j a'_{4,j} v_j$ — a **sum**, identical for both word orders → *"it is impossible to understand the meaning of the word with only attention."*
+- **Solution: encode token order in the data** — add a positional vector: $\tilde x_i = x_i + r_i$, with $r_i, x_i \in \mathbb{R}^{D\times1}$.
+- An **ideal positional encoding** should: provide a unique representation for each position; be bounded; generalize to longer sequences; encode the *relative* positions of tokens.
+- **Sinusoidal encoding** (position $n$, dimension $i$, base $L$):
+
+$$r_{ni} = \begin{cases} \sin\left(\dfrac{n}{L^{i/D}}\right) & i \text{ even} \\[2mm] \cos\left(\dfrac{n}{L^{(i-1)/D}}\right) & i \text{ odd} \end{cases}$$
+
+Visualizations for $D = 6, L = 30, N = 200$ and $D = 100, L = 30, N = 200$ [figure: Bishop & Bishop].
+
+- With positional encoding, the full pipeline is: $X$ + positional encoding → transformer layer (multi-head self-attention + LayerNorm + MLP with residuals) → $Y$.
+- Note: **recent architectures use Rotary Positional Embedding (RoPE)** instead.
+
+## 13.7 Transformers for images — Vision Transformer (ViT)
+
+[Figure from the ViT paper by Dosovitskiy et al. — "An Image is Worth 16×16 Words"; the slide's caption cites it via "Attention is All You Need paper by Dosovitsky et al."]
+
+Procedure for an $H \times W \times C$ image:
+
+1. Split into a grid of patches $x_1, \dots, x_N$ (3×3 grid illustrated), each patch $x_i \in \mathbb{R}^{P\times P \times C}$; number of tokens $N = HW/P^2$.
+2. **Linear patch embedding**: $z_i = \mathrm{flatten}(x_i)\, E$ with $E \in \mathbb{R}^{(P^2 C)\times D}$, giving $z_i \in \mathbb{R}^{1\times D}$.
+3. Prepend a learnable **class token** $z_0$; add positional embeddings: $z_i^0 = z_i + E_{pos}^i$, $E_{pos}^i \in \mathbb{R}^{1\times D}$.
+4. Run the transformer encoder: $X^L = \mathrm{TransformerEncoder}(X^0)$ with $X^0 = [z_0^0; z_1^0; \dots; z_9^0]$.
+5. Classify from the final class token: $y = \mathrm{MLP}(z_0^L)$.
+
+**CNNs vs. Transformers for images**:
+
+- In CNNs, **locality and the two-dimensional neighborhood structure are strong inductive biases** for vision tasks.
+- In ViT: **only the MLP layers are local, while self-attention is global**; **patching is the only 2-D inductive bias** — the model has to learn geometrical properties from scratch; consequently ViT **generally requires more training data** than a comparable CNN.
+
+## 13.8 References
+
+1. *Deep Learning: Foundations and Concepts*, Christopher Bishop & Hugh Bishop — Chapter 12 (Transformers), https://www.bishopbook.com/
+2. *Understanding Deep Learning*, Simon J. Prince — https://udlbook.github.io/udlbook/
+
+---
+# 14. Lecture 11 — Pixel-Wise Predictions with Deep Neural Networks (`Lecture_11-Pixel_level_predictions.pdf`, 140 slides)
+
+*Ertunc Erdil, ETH Zürich (slide date printed: May 6, 2025)*
+
+**Five different pixel-level prediction problems**: segmentation · restoration · synthesis · registration (*not covered in this lecture*) · reconstruction (*not covered*). For each covered problem the same three-part strategy is followed: **(1) data set, (2) cost function, (3) architectures**.
+
+## 14.1 Machine learning recap
+
+- **Mapping**: features $x$ (observed at inference; real/categorical; $D$-dimensional — e.g., image intensities for classification, intensities at/around a pixel for segmentation) → labels $y$ (not observed at inference; real/categorical; $d$-dimensional — class of the image; label at a pixel). Parameterized approximation $y \approx f(x; \theta)$ (non-parametric mappings also possible; here: multi-layered neural networks).
+- **Learning**: determine "best" parameters from **labeled examples** (supervised learning); training set $D_{tr} = \{(x_n, y_n)\}_{n=1}^N$ with ground-truth labels; generic loss $\mathcal{L}(y, f(x;\theta))$; training loss $\mathcal{L}(D_{tr};\theta) = \frac{1}{N}\sum_n \mathcal{L}(y_n, f(x_n;\theta))$.
+- **Learning is optimization**: $\theta^* = \arg\min_\theta \mathcal{L}(D_{tr};\theta)$, which must also *generalize* to $D_{val}$. Note: the loss is a **sum over samples** — $\theta$ does not have to satisfy any single sample perfectly; it satisfies them **on average**.
+- **Hyper-parameters and the validation set**: most algorithms have hyper-parameters $\phi$ — so really $y \approx f(x; \theta, \phi)$. For deep networks: architecture, stopping point of optimization, learning rate. The validation set determines them: $\phi^* = \arg\min_\phi \mathcal{L}(D_{val}; \theta^*, \phi)$ where $\theta^* = \arg\min_\theta \mathcal{L}(D_{tr}; \theta, \phi)$ — ideally solved as a **nested optimization**.
+- **Prediction/inference**: for a new sample, $y \approx f(x; \theta^*)$; remember that in general $y \ne f(x;\theta^*)$. Prediction error is computed on a **hold-out test set**, either with the training loss $\frac{1}{T}\sum_t \mathcal{L}(y_t, f(x_t;\theta^*))$ or with another, more application-appropriate function $\frac{1}{T}\sum_t D(y_t, f(x_t;\theta^*))$ — used when $D$ is more appropriate but not differentiable (e.g., ranking-based).
+- **CNN recap**: classification network $I \to L_1 \to \dots \to L_5 \Rightarrow O \in [0,1]$ (→ = convolution + non-linearity + pooling; ⇒ = fully connected). **Receptive fields**: the receptive field depends on the layer a neuron sits in; deeper neurons see larger input patterns — **large contextual information but perhaps fewer local details**.
+- **Transformer recap**: $Y = \mathrm{Softmax}(QK^T/\sqrt{D_K})\, V$.
+
+## 14.2 Segmentation
+
+**Problem recap**: assign to each pixel a label indicating the structure it belongs to; **multi-modal** versions exist (multiple input sequences).
+
+### Data sets
+
+- Need labeled image/segmentation pairs — "and you need a *large* number"; also a validation set and a test set.
+- **How big a data set do you need?** Generally no good answer — "it depends on the problem": how variable is the structure? the background? the intensity profile? **Example**: for brain MRI with T1w MPRAGE, it takes **3–5 labeled volumes** to train a good UNet for segmenting large anatomical structures (white matter, gray matter, hippocampus, …). Difficult to generalize from such examples.
+- **Variations and challenges in reality**:
+  1. **Ambiguity in labeling** — ambiguity/uncertainty in segmentation labels is very common (inter-rater disagreement).
+  2. **Missing data in multimodal cases** — very common when problems require multiple sequences; you may need to **impute** missing data during training or testing — and how do you do that when the missing data are images?
+  3. **Images from different "domains"** — centers, scanners, sequences: even images all acquired with similar sequences (T1w MPRAGE) can differ a lot in tissue contrast due to small scanner/protocol (sequence parameter) differences; changes can happen during training **and** during inference. (Addressed later in the course — domain adaptation.)
+
+### Cost functions
+
+- **Pixel-wise binary cross-entropy** — extension of binary classification loss; per sample:
+
+$$\mathrm{BCE}(y, f(x;\theta)) = -\mathbb{1}(y{=}1)\log f(x;\theta) - \mathbb{1}(y{=}0)\log(1 - f(x;\theta))$$
+
+with $f(x;\theta)$ the predicted probability of class 1. Pixel-wise extension — sum over pixels $r$: $\mathcal{L}(y, f(x;\theta)) = \sum_{r=1}^D \mathrm{BCE}(y(r), f(x;\theta)(r))$ — note the network output is itself **an image**.
+
+- **Multi-class cross-entropy**: $\mathrm{CE}(y, f(x;\theta)) = -\sum_k p(y{=}k) \log f_k(x;\theta)$ — the network assigns a probability per class; if the ground truth has no uncertainty (most applications), $p(y{=}k)$ is 1 for exactly one class. Pixel-wise: $\mathcal{L} = \sum_r \mathrm{CE}(y(r), f(x;\theta)(r))$; dataset loss sums over samples.
+- **The challenge with (binary) cross-entropy**: with **small structures** (relative to background or other classes), the loss decomposes as $\mathcal{L} = \mathcal{L}_{\Omega_{small}} + \mathcal{L}_{\overline{\Omega_{small}}}$ and very likely $\mathcal{L}_{\Omega_{small}} \ll \mathcal{L}_{\overline{\Omega_{small}}}$ since $|\Omega_{small}| \ll |\overline{\Omega_{small}}|$ — small structures are **dominated** by large ones.
+- **Sørensen–Dice coefficient**: $\mathrm{DSC} = \frac{2|A \cap B|}{|A| + |B|}$ — used for evaluating segmentation quality; 1 at perfect overlap, 0 at none; **but not differentiable** as a set measure.
+- **DSC (soft Dice) loss** [Milletari et al., *V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation*, 3DV 2016] — binary:
+
+$$\mathcal{L}(y, f(x;\theta)) = \frac{2\sum_{r} y(r)\, f(x;\theta)(r)}{\sum_r y(r)^2 + \sum_r f(x;\theta)(r)^2}$$
+
+multi-class: sum the same ratio per class $k$ with $p(y(r){=}k)$ and $f_k$. **Each class's DSC loss is equal in magnitude despite different sizes** — contrary to cross-entropy (solves the small-structure problem).
+
+### Architectures
+
+- Setup: image $D_1 \times D_2$; binary segmentation → input $D_1\times D_2$, output $D_1 \times D_2 \times k$ giving per-pixel class probabilities.
+- **From classifier to segmenter**: start from the classification CNN $I \to L_1 \dots L_5 \Rightarrow O$. We want an image-sized output, so: **upsample within the network** ($\uparrow s$) converting an intermediate layer $L_5$ to the required image size (upsampling factor $s$ depends on the channel size at $L_5$). Nothing special about the last layer — upsampling can be placed at different depths; use "same" convolutions (padding, no pooling) to preserve dimensions. Example channel assignment: $I \to 32 \to 128 \to 256 \to 128 \uparrow s \to 32 \to O$, with 1-padded 3×3 convolutions; ReLU activations internally; final layer **sigmoid** so $O(r) \in [0,1]\ \forall r$.
+- **Multi-class**: the output has multiple channels, each an image of per-class probabilities; probabilities must add up → **soft-max activation across channels at each pixel**: $f_k(x;\theta)(r) = \exp\{a_k(r)\}/\sum_j \exp\{a_j(r)\}$; the pre-softmax convolutions output as many channels as classes.
+- **Challenge with this simple idea**: at $L_5$ so many pooling operations have happened that **details are lost** — the output loses resolution. Key question: **how to use contextual information while retaining high-resolution information?**
+- **FCN with hierarchical links** (fully convolutional networks): combine outputs from **different scales** ($O_1 \uparrow 32$, $O_2 \uparrow 16$, $O_3 \uparrow 8$) to retain high-resolution details — improved details through aggregating information from different layers.
+- **UNet**: encoder–decoder with down-/up-sampling by 2 at each level ($I \to L_1 \downarrow L_2 \downarrow L_3 \downarrow L_4 \to L_5 \uparrow L_6 \uparrow L_7 \uparrow L_8 \to O$) and **skip connections** between corresponding levels:
+  - Skip connections **retain high-resolution information**; they consist of convolutions and the results are **concatenated** at the target.
+  - The number of levels and layer compositions are arbitrary — they can change.
+  - Layer legend: $\to\downarrow2$ = same-convolution + non-linearity + pooling; $\to\uparrow2$ = bilinear upsampling + same-convolution + non-linearity **or** transposed convolution + non-linearity; $\to$ = same-convolution + non-linearity; final $\to$ = same-convolution + sigmoid or soft-max.
+- **Further alternatives**: UNet has been hugely successful; alternatives exist (e.g., **DeepMedic**); 3D extensions available; **transformer technologies within UNet structures are immensely successful** (integrating transformer blocks in the encoding path); architecture design remains an active research area.
+
+## 14.3 Restoration
+
+**Problem recap** [Yang et al., *IEEE TMI* 2018 — low-dose CT denoising]: removing noise from an image, image super-resolution, bias-field removal, etc. all fall into this category.
+
+### Data sets
+
+- Pairs of degraded/clean images, in "large" numbers + validation and test sets. Data-set size: again no good answer — depends on how variable the underlying data is, how difficult the denoising problem is, how variable the intensity profile is.
+- Challenge list extended with **(4) ground truth may not be available**: e.g., the low-dose CT images in the example are **simulated**, not acquired — acquiring real ground truth may be impossible due to physical limitations of the acquisition system or because additional acquisitions would be **unethical** (extra radiation dose).
+
+### Cost functions
+
+- **Basic**:
+  - Mean absolute error: $\mathrm{MAE} = \sum_r |y(r) - f(x;\theta)(r)|$
+  - Mean squared error: $\mathrm{MSE} = \sum_r \|y(r) - f(x;\theta)(r)\|_2^2$
+  - Normalized MSE: $\mathrm{NMSE} = \mathrm{MSE}/\sum_r \|y(r)\|_2^2$ or $\mathrm{MSE}/\|\max(y) - \min(y)\|_2^2$
+  - Peak signal-to-noise ratio: $\mathrm{PSNR} = 10\log_{10}\frac{\max(y)^2}{\mathrm{MSE}}$
+  - **SSIM** [Wang, Bovik, Sheikh, Simoncelli, *IEEE TIP* 2004]: $\mathrm{SSIM}(a,b) = \frac{(2\mu_a\mu_b + c_1)(2\sigma_{ab} + c_2)}{(\mu_a^2 + \mu_b^2 + c_1)(\sigma_a^2 + \sigma_b^2 + c_2)}$, computed over many patches $a, b$ from $y$ and $f(x;\theta)$; a combination of local **luminance, contrast, and structure** comparisons.
+- **Limitation of basic losses**: MSE-type losses may not capture differences that make images look "**perceptually**" similar — an MSE-trained CNN produces over-smoothed output (Yang et al. TMI 2018 example: ground truth vs. noisy input vs. blurry MSE output).
+- **Perceptual loss**: while it's unclear what "perceptual differences" means exactly, one can use neural networks to measure them: pass both $y$ and $f(x;\theta)$ through a **previously trained CNN** and compare intermediate features $\phi_j$: $\sum_j \mathrm{MSE}(\phi_j^y, \phi_j^f)$. The feature CNN can be a well-established network trained on natural images (e.g., **VGG**) or a network trained on CT images for another task; it can be much deeper. Distances between "**deep features**" measure differences in contextual information beyond pixel-wise differences. Effect shown: VGG-perceptual-loss output is much sharper than MSE output.
+- **Adversarial loss**: another way to capture perceptual differences — a **distributional distance**, defined not between two samples but **over sets of samples**. A **discriminator** $D$ tries to identify whether an input image is real or produced by the "generator" network $f(\cdot;\theta)$; optimized as a min-max problem:
+
+$$\min_\theta \max_\psi\ \mathbb{E}_{y\sim p(y)}[\log D(y;\psi)] + \mathbb{E}_{x\sim p(x)}[\log(1 - D(f(x;\theta);\psi))]$$
+
+- **Combined effect** [Yang et al. TMI 2018]: training with **Wasserstein-GAN adversarial loss + VGG perceptual loss** gives the most realistic denoised low-dose CT results (vs. MSE).
+
+### Architectures
+
+- Most works use **fully convolutional networks (FCN) or UNet** structures [Yang et al. TMI 2018 architecture shown].
+- **Residual architectures**: restorative information is added as a **residual** to the original or naively-restored image — e.g., residuals added to a linearly upsampled image to restore high-resolution details (well established across restoration problems).
+
+## 14.4 Synthesis
+
+**Problem recap** [Wolterink et al., MICCAI 2017 — MR-to-CT synthesis]: synthesizing a target image from a source image. Uses: **data imputation**; **reducing the need for irradiation** (CT/PET); **reducing the need for additional imaging**.
+
+### Data sets
+
+- Paired source/target images in "large" numbers + validation/test. Size: no general answer — depends on source variability and target variability. **Some synthesis problems are possibly not solvable** — e.g., generic MRI → PET synthesis.
+- Challenge list extended further:
+  1. Ambiguity in labeling — *a source image may not uniquely identify a target*.
+  2. Missing data in multimodal cases.
+  3. Different domains (centers, scanners, sequences).
+  4. Ground truth not available for all questions.
+  5. **Labels and features may not be paired!** — **unpaired data**: label images and input images may come from **different individuals**.
+
+### Cost functions
+
+Similar to restoration: MAE, MSE, NMSE, PSNR, SSIM, perceptual distance, adversarial loss. **Distributional losses (adversarial) are particularly useful for unpaired datasets.**
+
+### Architectures
+
+- **Paired case**: "good old UNet" is used quite often — same architecture legend as segmentation but the final layer has **no activation function** (regression output); works with any loss.
+- **Unpaired case — CycleGAN-style**: two generators $f(x;\theta): x \to y$ and $g(y;\psi): y \to x$, plus two discriminators $D_x, D_y$. Total loss = adversarial terms + **cycle-consistency** loss:
+
+$$\underbrace{\mathcal{L}_{GAN}(g, D_x, x, y) + \mathcal{L}_{GAN}(f, D_y, y, x)}_{\text{adversarial}} + \underbrace{\|x - g(f(x;\theta);\psi)\|_1 + \|y - f(g(y;\psi);\theta)\|_1}_{\text{cycle consistency}}$$
+
+with $\mathcal{L}_{GAN}(f, D_y, y, x) = \min_\theta \max_\phi \mathbb{E}_{y\sim p(y)}[\log D_y(y;\phi)] + \mathbb{E}_{x\sim p(x)}[\log(1 - D_y(f(x;\theta);\phi))]$.
+
+- Final slide: **paired vs. unpaired training** comparison.
+
+---
