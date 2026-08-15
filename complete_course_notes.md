@@ -1170,3 +1170,484 @@ $r$ prefers some transformations over others; $\lambda$ is a weight.
 4. **Toolboxes** (coding a full registration tool is laborious): **ITK** (C++ library with registration tools); **elastix** (http://elastix.isi.uu.nl — great and easy to use); **ANTs** (Advanced Normalization Tools, http://stnava.github.io/ANTs/).
 
 ---
+# 8. Lecture 6 — Introduction to Segmentation (`lecture6_segmentation_introduction.pdf`, 131 slides)
+
+*Ender Konukoglu, ETH Zürich, March 24, 2026*
+
+**Segmentation = from image intensities to anatomical structures and semantic information.** Recap of the principle: assign a label $L(x) \in \{0,\dots,N\}$ to each pixel/voxel from features $f(x) = [I(x), I(N(x)), J(N(x)), \dots]$, $L(x) \approx S(f(x))$; labels can be organs, parts of organs, or lesions. The techniques-overview taxonomy from Lecture 1 is repeated (thresholding/histogram, clustering, graph partitioning, region growing, variational/PDE-based, discriminative, generative).
+
+**Lecture overview**: (1) Basic segmentation — thresholding, K-means, EM; (2) Atlas-based segmentation — formulation, multi-atlas; (3) Spatial constraints — morphological operations, random field priors.
+
+## 8.1 Basic segmentation
+
+### Thresholding
+
+$$L(x) = \begin{cases} 1 & I(x) > \tau \\ 0 & I(x) \le \tau \end{cases} \quad \text{(or vice-versa)}$$
+
+- Particularly useful for easy **foreground–background subtraction**; a preprocessing method for region-of-interest determination; used **routinely in histology** and other microscopy where stains provide the necessary contrast.
+- **Determining the threshold**: histogram analysis (per-channel histograms of RGB histology images shown); automatic methods find peaks/troughs of the histogram. **Otsu's method**: choose the threshold minimizing the intra-class variance
+
+$$\min\ p_1 \sigma_1^2 + p_2 \sigma_2^2$$
+
+where $p_{1,2}$ are the numbers of pixels in fore-/background and $\sigma^2_{1,2}$ the intensity variances within the groups.
+
+- Remarks: **global** thresholding (entire image) vs. **local** (per ROI/patch); image noise can create isolated FG/BG islands; multiple objects require multiple thresholds; a nice generalization is the **K-means algorithm**.
+
+### K-means clustering
+
+- **Unsupervised** clustering: voxels/pixels are clustered according to features — intensity, color, temporal sequence, other features (gradient, wavelet transform, …); automatically assigns each pixel to one of $N$ clusters.
+- Goal: distribute pixels into $N$ groups such that features are **homogeneous within groups** (reducing within-group feature variance), taking multiple features into account; no information about structures or groups (unsupervised). Iterative: assign pixels to groups → compute group means → re-assign by distance to group centers.
+
+```
+Algorithm: K-Means
+1: Describe each pixel by features f(x) ∈ R^m (intensity only: m=1; RGB: m=3)
+2: Randomly choose N points as group centers m_i^0 ∈ R^m, i = 1..N
+3: while ||m_i^t − m_i^{t−1}|| > ε for any i do
+4:     Assign groups: c(x) = arg min_i ||f(x) − m_i||₂
+5:     Recompute means: m_i = Σ_x δ_{i=c(x)} f(x) / Σ_x δ_{i=c(x)}
+6: end while
+```
+
+- Examples: MRI clustered with 2, 3, 4 clusters; a question slide shows the same image and number of clusters giving **different results** on two runs ("Why does this happen?" — random initialization / local minima).
+- **Remarks**:
+  - Creates clusters with features as homogeneous as possible; finds assignments and means that best explain the data for the given number of clusters.
+  - Very easy to implement.
+  - The **choice of the number of clusters** has a major influence; automatic selection methods exist (variance-based heuristics; non-parametric Bayesian methods).
+  - **Initialization matters** — K-means can get stuck in local minima → run multiple times with different initializations; multi-scale methods for robustness.
+  - A **probabilistic formulation** is possible ($\max \ln p(I)$) — more robust and allows extensions → leads to EM.
+
+### Expectation–Maximization (EM) segmentation
+
+**Mixture model** — same idea as K-means but probabilistic; this view later enables accurate atlas-based segmentation and motivates registration. Assume all pixels independent; model intensities/features $f$ as a mixture:
+
+$$p(f) = \sum_{n=1}^{N} p(f \mid c = n)\, p(c = n)$$
+
+- $p(c)$: prior probability of the (latent) label — the **mixture coefficients**; $p(f \mid c)$: likelihood, often Gaussian:
+
+$$p(f \mid c = n) = \mathcal{N}(f \mid \mu_n, \Sigma_n) = \frac{1}{\sqrt{2\pi |\Sigma_n|}} \exp\left(-\tfrac{1}{2}(f - \mu_n)^T \Sigma_n^{-1} (f - \mu_n)\right)$$
+
+with class-specific $\mu_n, \Sigma_n$ → **Gaussian mixture model (GMM)**.
+
+- 1D example with 3 latent labels and different mixture weights ($p(c{=}0){=}p(c{=}1){=}p(c{=}2){=}1/3$; $3/5$–$1/5$–$1/5$; etc.). Comparing with a real brain-MR histogram: a GMM "may not be a bad approximate model for the intensities."
+
+**Fitting**: unsupervised maximum likelihood, assuming a known number of classes $N$ and pixel independence:
+
+$$\max_\theta \log p(I \mid \theta) = \max_\theta \sum_{x\in\Omega} \log \sum_{n=1}^N p(I(x) \mid c(x) = n)\, p(c(x) = n)$$
+
+with $\theta = \{\pi_n = p(c(x){=}n),\ \mu_n,\ \Sigma_n\}$. After fitting, segmentation is via the **posterior**: $c^*(x) = \arg\max p(c(x) \mid I(x))$. Gradient descent is possible but difficult; the better alternative is **EM**.
+
+**Key idea — two alternating steps**: *E-step*: assume likelihood parameters, "softly" assign samples to labels. *M-step*: given soft assignments, maximize likelihood parameters (e.g., best Gaussian means/stds).
+
+**Derivation** (dropping $x$): using Bayes' rule, $\log p(I \mid \theta) = \log p(I, c \mid \theta) - \log p(c \mid I, \theta)$. Taking expectations w.r.t. $p(c \mid I, \theta^{old})$:
+
+$$\log p(I \mid \theta) = \underbrace{\mathbb{E}_{p(c \mid I, \theta^{old})}[\log p(I, c \mid \theta)]}_{Q(\theta \mid \theta^{old})} - \mathbb{E}_{p(c \mid I, \theta^{old})}[\log p(c \mid I, \theta)]$$
+
+One can show $0 \ge \mathbb{E}_{p(c\mid I,\theta^{old})}[\log p(c \mid I, \theta^{old})] \ge \mathbb{E}_{p(c\mid I,\theta^{old})}[\log p(c \mid I, \theta)]\ \forall\theta$, which implies: (1) $\log p(I \mid \theta) \ge Q(\theta \mid \theta^{old})$; (2) **any $\theta$ that increases $Q$ also increases $\log p(I\mid\theta)$** → iterate:
+
+- **E-step**: compute $p(c \mid I, \theta^{old})$
+- **M-step**: maximize $Q(\theta \mid \theta^{old}) = \mathbb{E}_{p(c\mid I, \theta^{old})}[\log p(I, c \mid \theta)]$; set $\theta^{old} = \theta^*$
+- Start from random $\theta^{old}$, iterate E and M steps.
+
+**For the GMM** the steps are closed-form:
+
+- E-step (responsibilities):
+
+$$p(c(x) \mid I(x), \theta^{old}) = \frac{\mathcal{N}(I(x) \mid \mu^{old}_{c(x)}, \Sigma^{old}_{c(x)})\, \pi^{old}_{c(x)}}{\sum_{n=1}^N \mathcal{N}(I(x) \mid \mu^{old}_n, \Sigma^{old}_n)\, \pi^{old}_n}$$
+
+- M-step:
+
+$$\pi_n = \frac{\sum_x p(c(x){=}n \mid I(x), \theta^{old})}{|\Omega|} \qquad \mu_n = \frac{\sum_x I(x)\, p(c(x){=}n \mid I(x), \theta^{old})}{\sum_x p(c(x){=}n \mid I(x), \theta^{old})} \qquad \Sigma_n = \frac{\sum_x (I(x) - \mu_n)(I(x) - \mu_n)^T p(c(x){=}n \mid \cdot)}{\sum_x p(c(x){=}n \mid \cdot)}$$
+
+- Example: 5 components on a brain MR image; posterior maps $p(c{=}1\mid I), \dots, p(c{=}5 \mid I)$ shown.
+- **Remarks**: quite robust; initialization matters if done badly; the **number of components** is important (may need prior knowledge of how many structures to extract); outputs are already useful (e.g., **gray-matter density maps**); used very regularly in famous tools — **SPM, FSL, FreeSurfer**; extensions to include better priors (e.g., an **atlas**) are possible.
+- **Simple Segmentation Challenge** (Moodle): T1w and T2w volumes of the same individual. Goals: (1) perform bias removal on both and compare the bias fields — are they different? (2) perform EM segmentation on the individual images and jointly — does using multiple modalities give better-defined clusters?
+
+## 8.2 Atlas-based segmentation
+
+### The atlas concept
+
+- Analogy: a **world atlas** — for each location it tells you what is there. A **brain atlas** does the same for anatomy (examples shown: T1-weighted, proton-density templates plus gray matter / white matter / CSF probability maps).
+- An **atlas** adds prior information to segmentation — no longer simple clustering:
+  - A **template in a reference frame**; for each location it provides information about what is there.
+  - **Deterministic** (world atlas) or **probabilistic** — $p(c(x))$ (brain atlas).
+  - Applicable to any anatomical structure.
+  - Created by **averaging many different images** — the one shown was made from **152** different images (MNI152-style template).
+
+### Formulation
+
+- **Aligning to a reference frame**: register the atlas to the image (linear or non-linear registration); the image is mapped into the reference frame; at each point we now have a rough idea which structure to expect.
+- Probabilistic formulation — start from the mixture model with unsupervised weights and **replace the mixture coefficients with the (registered) atlas prior**:
+
+$$p(I(x) \mid \theta) = \sum_{n=1}^N \mathcal{N}(I(x) \mid \mu_n, \Sigma_n)\ p_{atlas}(c(x) = n), \qquad \theta = \{\mu_n, \Sigma_n\}_{n=1}^N$$
+
+The atlas brings the prior information; the **posterior** now takes both atlas and intensities into account:
+
+$$p(c(x) = n \mid I(x)) = \frac{\mathcal{N}(I(x) \mid \mu_n, \Sigma_n)\, p_{atlas}(c(x)=n)}{\sum_{n'} \mathcal{N}(I(x) \mid \mu_{n'}, \Sigma_{n'})\, p_{atlas}(c(x)=n')}$$
+
+- Information propagates **from the atlas to the image**; no need to optimize the class probabilities $\pi_n$ anymore. *Do we still need to optimize $\mu_n, \Sigma_n$?* **Yes, for MRI** (no absolute intensity scale)! (For CT one may fix all parameters.)
+- Comparison with/without atlas: **much better segmentation**; and there is **no randomness in the components** — we know what we ask for (component $n$ *is* e.g. gray matter).
+
+### Analysis
+
+- Used very commonly; easily generalizable to other body parts with an appropriate atlas; generalizable to other modalities (may fix all parameters for CT); an **outlier class** can be added to detect outliers.
+- Requirements/caveats: need an atlas for each body part; the **atlas itself is very important** — may need atlases for different age groups, gender, race, …; **accuracy of the registration is very important**.
+- **Two remedies** to improve robustness to atlas choice and registration: **multi-atlas segmentation** and **patch matching** (local searches in a sliding-window manner) — the latter covered in a later lecture.
+
+### Multi-atlas segmentation
+
+- Use **many atlases** rather than one: align all atlas images to the test image; **aggregate** the information from all of them; this remodels $p_{atlas}(c(x) = n)$.
+- During aggregation, **weight atlases by registration quality**; example weighting schemes given:
+  - $w_m \propto \|I(x) - A_m\|_2$ (intensity difference to atlas $m$)
+  - $w_m \propto \|I(x) - T \circ A_m\|_2$ (difference to the *warped* atlas)
+  - $w_m \propto |J_{T_{A_m \to I}}|$ (Jacobian determinant of the warp)
+- Many atlases reduce the importance of any single one; with weighting, bad registrations are less likely to dominate.
+- **Analysis**: solves some problems of single-atlas segmentation; **highly accurate**; was the **state of the art for a very long time**; leads to elegant probabilistic models [see the survey: *Multi-atlas segmentation of biomedical images*, J.E. Iglesias & M. Sabuncu, Medical Image Analysis, 2015]; but often requires **non-linear registration** and is **computationally VERY expensive** (many registrations).
+
+## 8.3 Spatial constraints in segmentation
+
+Motivation: so far **all pixels were treated independently** (atlases add some spatial information, but the final per-pixel decision still assumes independence). In real images this is highly unreasonable — **neighboring pixels are more likely to belong to the same object**. Two main approaches: (a) pre/post-processing (smoothing images beforehand; morphological operations); (b) **random field priors** (Markov random fields, conditional random fields).
+
+### Morphological operations
+
+- Segmentations suffer from **isolated islands** and **broken structures**, caused by noise, low-contrast boundaries, intensity overlap between structures, … Morphology operates on the segmentation (binary) image to **remove islands** and **fill gaps**.
+- Properties of mathematical morphology operations: **shift-invariant**, **non-linear**, based on neighboring pixels defined through **structural elements**, applied in a sliding-window manner; binary images viewed as **sets of pixels**; defined for binary but extended to gray-level images.
+- Two main operations ($A$ = image, $B$ = structural element, e.g. a small square of ones; $B_x$ = $B$ translated to $x$):
+  - **Dilation**: $C = A \oplus B \triangleq \{x \mid B_x \cap A \ne \emptyset\}$
+  - **Erosion**: $C = A \ominus B \triangleq \{x \mid B_x \subseteq A\}$
+  - (Examples shown with $B = \mathbb{1}_{13\times13}$.)
+- **Derived operations**:
+  - **Opening**: $(A \ominus B) \oplus B$ — removes small islands/protrusions.
+  - **Closing**: $(A \oplus B) \ominus B$ — fills small gaps/holes.
+
+### Random field priors (MRF)
+
+- Formulate **neighborhood consistency** in a probabilistic/energy model; main idea: **punish inconsistency** in the labeling of neighboring voxels, using the **Markovian property**.
+- Previous models factorized fully: $p(I, c) = \prod_{x} p(I(x)\mid c(x))\, p(c(x))$ (independent pixels). To model connections between pixels, **change the prior**:
+
+$$p(I, c) = p(c) \prod_{x\in\Omega} p(I(x) \mid c(x))$$
+
+- **Markovian property**: with $G(x)$ = neighbors of $x$: $p(c(x) \mid c(/x)) = p(c(x) \mid c(G(x)))$ — the label at $x$ depends only on its immediate neighbors, given all others. The specific form depends on the neighborhood structure.
+- **Energy formulation**: define an energy over neighboring label pairs,
+
+$$E(c) = \sum_{x\in\Omega} \sum_{y \in G(x)} d(c(x), c(y))$$
+
+with $d$ a distance between labels, and the corresponding **Gibbs distribution**
+
+$$p(c) = \frac{1}{Z} \exp\{-E(c)\}$$
+
+($Z$ = normalization constant). Lower distance → higher probability → enforces consistency.
+
+- *Is this even allowed?* **Hammersley–Clifford theorem**: any probability distribution satisfying a Markovian property is a Gibbs distribution for an appropriate locally-defined energy, and vice-versa.
+
+**Segmentation via posterior maximization**: the posterior $p(c \mid I) = p(I \mid c)p(c)/p(I)$ is now a **joint** distribution (no longer point-wise):
+
+$$\arg\max_c p(c \mid I) = \arg\max_c\ \exp\{-E(c)\} \prod_{x\in\Omega} p(I(x) \mid c(x))$$
+
+(assuming intensity at a voxel is independent of other voxels' intensities given its label). If the data model is also exponential, $p(I(x)\mid c(x)) \propto \exp\{-g(I(x)\mid\theta_{c(x)})\}$, this becomes **energy minimization**:
+
+$$\arg\min_c\ \underbrace{\sum_{x\in\Omega} g(I(x) \mid \theta_{c(x)})}_{\text{unary term}} + \underbrace{\sum_{x\in\Omega}\sum_{y\in G(x)} d(c(x), c(y))}_{\text{pairwise term}}$$
+
+- **Unary term** = data (fidelity) term — can also include any unary prior information on labels. **Pairwise term** = consistency term imposing similar labels on neighbors.
+- If $c(x)$ is continuous (regression), usual optimization techniques apply; if **categorical** (segmentation), optimization is challenging.
+
+**Simple example**: Gaussian observation model $p(I(x)\mid c(x)) = \mathcal{N}(I(x) \mid \mu_{c(x)}, \Sigma_{c(x)})$ so $g = (I(x)-\mu_{c(x)})^T \Sigma^{-1}_{c(x)} (I(x)-\mu_{c(x)})$; prior energy = **Ising/Potts model** $d(c(x), c(y)) = \lambda\, \delta(c(x) \ne c(y))$ (0 if labels equal, 1 otherwise):
+
+$$\arg\min_c \sum_{x\in\Omega} (I(x)-\mu_{c(x)})^T \Sigma^{-1}_{c(x)} (I(x)-\mu_{c(x)}) + \lambda \sum_{x\in\Omega}\sum_{y\in G(x)} \delta(c(x) \ne c(y))$$
+
+with $\lambda$ a trade-off between data fidelity and neighborhood consistency.
+
+**Optimization**: computing the posterior is very difficult; exact optimization in 2D and higher is **NP-hard** [Boykov, Veksler, Zabih, TPAMI 2001]. Approximate energy minimization / posterior sampling methods: **Gibbs sampling** [Geman & Geman 1984], **iterated conditional modes (ICM)** [Ferrari et al. 1995], **graph cuts** [Boykov, Veksler, Zabih 2001], …
+
+**Stochastic relaxation / Gibbs sampling — principle**:
+
+- Iterative Monte-Carlo method. Sampling from the full posterior $p(c\mid I)$ is hard (normalization sums over all label configurations), but sampling from the **per-voxel conditional** is easy:
+
+$$p(c(x) \mid c(/x), I) = \frac{p(I(x) \mid c(x))\ p(c(x) \mid c(G(x)))}{\sum_{c(x)} p(I(x) \mid c(x))\ p(c(x) \mid c(G(x)))}$$
+
+- Start from a random/likelihood-based assignment $c_0$ (e.g., $\arg\max_c \prod_x p(I(x)\mid c(x))$); sample each voxel's posterior given the others; iterate over all voxels a number of times. Convergence properties in [Geman & Geman 1984].
+- Example results: MRF smoothing with increasing $\lambda$.
+- **Analysis of Gibbs sampling**: very simple to implement and effective; solution depends on parameters and initial conditions; may not converge to a pleasing result; convergence may be slow; **stochastic** — every run gives something different; other methods may do better; a complicated optimization problem overall.
+
+### Conditional random fields (CRF)
+
+- The MRF energy formulation used in a **discriminative** way: directly model $p(c(x) \mid I)$ without the Bayesian generative treatment:
+
+$$\arg\min_c\ \underbrace{\sum_{x\in\Omega} g(c(x) \mid I)}_{\text{unary term}} + \underbrace{\sum_{x\in\Omega}\sum_{y\in G(x)} d(c(x), c(y))}_{\text{pairwise term}}$$
+
+- Note the unary term now conditions on the whole image $I$.
+- Can be used on its own (explicitly modeling $g$), or **with ML algorithm outputs** — e.g., the unary term can be the predictions of a **random forest**; commonly used to **clean up ML segmentation results**. Used regularly.
+
+---
+# 9. Lecture 7 — Statistical Shape Models & Active Shape Models (`Lecture_SSM+ASM.pdf`, 69 slides)
+
+*Mauricio Reyes, Ph.D. (mauricio.reyes@med.unibe.ch), University of Bern*
+
+**Lecture overview**: statistical shape modeling (quick summary/review); further considerations (reference selection, modeling scaling, outlier detection, modeling physiology); statistical shape modeling for segmentation: **Active Shape Models**.
+
+## 9.1 Big picture — segmentation method families
+
+| Simple methods | Classification + clustering | Deformable models | Active models |
+|---|---|---|---|
+| thresholding, region growing, … | kNN, SVM, … | snakes, level sets, … | **ASM, AAM** |
+
+**Motivation for SSMs of human organs**: a standard **atlas** (think: a template) encodes prior knowledge; a **patient-specific SSM** balances *prior knowledge (what we know in advance)* vs. *observation (what we see)* — a statistical distribution of shape rather than a single template.
+
+## 9.2 Mathematical tool — Principal Component Analysis (PCA)
+
+- PCA **reduces the dimensionality** of a linear system: it projects the original data onto a lower-dimensional space, embedding the data in a more compact representation.
+- 2D intuition: data points scattered along a principal direction; PCA yields the main (and secondary) directions and creates an **orthogonal coordinate system maximizing the variance** in each direction; points can be referenced along the main axis with a single parameter $b$ (2-D → 1-D).
+- **SVD** diagonalizes the covariance matrix of the data: $M = U W V^T$ — $U$ contains the **eigenvectors** and $W$ the diagonal matrix of **eigenvalues** of $\mathrm{Cov}(M)$.
+- Properties/caveats: PCA **assumes the data follow a Gaussian distribution** (even if in reality they do not); results in an orthogonal lower-dimensional system (principal axes perpendicular); PCA is a **linear** method. Other linear/non-linear dimensionality-reduction techniques exist: factor analysis, Isomap, multidimensional scaling (MDS), etc.
+
+## 9.3 Building a statistical shape model
+
+### Shape representation — point clouds
+
+- Every surface point $p_i = \{x_i, y_i, z_i\}$; the surface is the concatenation $S = \{p_1, \dots, p_n\}$ with $n$ surface points; each shape becomes a vector
+$$s_i = \{x_{i,1}, y_{i,1}, z_{i,1},\ x_{i,2}, y_{i,2}, z_{i,2}, \dots, x_{i,n}, y_{i,n}, z_{i,n}\} \in \mathbb{R}^{3n}$$
+
+### Point-to-point correspondence
+
+- For two objects of the same class (e.g., two femurs from different patients), isosurfacing initially yields point clouds with **different numbers of points** → one must establish **anatomical correspondence** between points.
+
+### Point Distribution Models (PDM)
+
+Prerequisites: a set of **aligned** shapes; each with the **same number** of surface points; points correspond anatomically and/or spatially; each shape a coordinate vector. Stack the $m$ shape vectors into a matrix $M = (s_1\ s_2\ \cdots\ s_m)$ (rows: all $x$-coordinates, then $y$, then $z$; $n$ = points per mesh, $m$ = training samples).
+
+**Modeling shape variability**: subtract the mean from each instance, $D = M - \mathrm{mean}(M)$, and apply **SVD directly on $D$**: $D = U W V^T$, where $U$ = eigenvectors of $\mathrm{Cov}(M)$ and $\mathrm{diag}(W)$ = eigenvalues of $\mathrm{Cov}(M)$.
+
+**Summary of statistical shape modeling**: the model consists of the **mean shape** $\bar x$ and the eigen-decomposition of the covariance $S\varphi_k = \lambda_k \varphi_k$ ($k$-th eigenvector/eigenvalue pair) — new shapes are generated as $x \approx \bar x + \Phi b$ where columns of $\Phi$ are eigenvectors ("modes of variation") and $b$ the shape parameters.
+
+### Model evaluation — three standard measures
+
+Used to indicate how well the modeling embedded the original data into a lower-dimensional space:
+
+1. **Compactness** — how good the data reduction is: a compact model generates new shape instances with as few parameters (principal modes) as possible. Curve of cumulative explained variance vs. number of modes:
+$$C(t) = \frac{\sum_{i \le t}\lambda_i}{\lambda_{total}}, \qquad \lambda_{total} = \text{sum of all eigenvalues}$$
+2. **Generalization** — the ability to represent **new** instances of the class, measured by **leave-one-out** reconstruction: for every left-out instance build a model from the rest, compute its parameters $b_{out} = \Phi^{-1}(x_{out} - \bar x)$, reconstruct $\tilde x = \bar x + \Phi b_{out}$, measure error $\frac{1}{N}\sum_i (x_i - \tilde x_i)^2$ averaged over all training instances → the generalization curve (depends on number of modes used).
+3. **Specificity** — how good the model is at generating instances **similar to the training set**: generate a large number of random instances with different numbers of modes, and for each compute the distance to the closest training shape.
+
+## 9.4 SSM for segmentation — Active Shape Models (ASM)
+
+[Cootes et al. 1995]
+
+**General idea**:
+1. Start with an SSM and an image; **initially place the SSM** in the image.
+2. **Sample along the SSM surface normals**, find the largest gradient (= edge).
+3. **Deform pose** (scale, rotation, translation) **and shape** (PCA modes) of the model to best fit the extracted image features.
+
+### Initialization — a crucial step
+
+Approximately align the SSM with the structure of interest. Many methods; choose per application: user interaction; centroid alignment; Chamfer matching; atlas registration; global search over the entire image (evolutionary algorithms). Illustration [Cootes et al., SPIE Medical Imaging 2001]: initial → 2 iterations → 20 iterations.
+
+### Feature extraction, normals and profiles
+
+- **Feature extraction**: edge detection methods (fill-in slide).
+- **Normals**: the SSM's points + connections give a **mesh**, so each point's neighbors are known; the **cross product** of two (edge) vectors yields the orthogonal vector — the **surface normal**.
+- **Sampling along profiles**: given a model point and its normal, sample along the normal profile; parameters: sampling range and step size → $2k + 1$ samples; **choose the point with the largest feature value (gradient)**; the model point should be transformed toward that point.
+
+### Pose estimation
+
+- Goal: rough alignment of both point sets; here a **2D similarity transform**:
+
+$$T_{X_t, Y_t, s, \Theta}\begin{pmatrix}x\\y\end{pmatrix} = \begin{pmatrix}X_t\\Y_t\end{pmatrix} + \begin{pmatrix} s\cos\Theta & -s\sin\Theta \\ s\sin\Theta & s\cos\Theta \end{pmatrix}\begin{pmatrix}x\\y\end{pmatrix}$$
+
+- Optimize the registration w.r.t. a cost function (e.g., mean Euclidean distance): minimize $|Y - T_{X_t,Y_t,s,\Theta}(x)|$ — solved e.g. via **ICP** (iterative closest point).
+
+### Shape estimation
+
+- **PCA-based deformation**: $b = P^T(x - \bar x)$, $x \approx \bar x + P b$; for target points $Y$: $b = P^T(Y - \bar x)$.
+- Keep only the $k$ most important PCA modes (e.g., enough to account for **90% of variance**).
+- **Threshold $b$** to allow plausible shapes only: $|b_i| < 3\sigma_i$ (3 standard deviations capture more than 95% of the variation of a Gaussian).
+
+### Optimization scheme
+
+- Pose and shape optimized separately or jointly; optimizer for pose (e.g., gradient descent), **closed-form solution for shape**.
+- Iterative loop: compute profiles along normals → adjust pose → adjust shape → iterate until convergence. In formulas: $b = P^T\left(T^{-1}_{X_t,Y_t,s,\Theta}(Y) - \bar x\right)$, then the model instance in the image is $X = T_{X_t,Y_t,s,\Theta}(\bar x + Pb)$.
+
+### Advanced methods
+
+- **Multi-resolution pyramid**; handling noise by **averaging along points on the normal**; **intensity profiles** for modeling local structure:
+  1. Sample along the profile for the $i$-th image; 2. avoid raw intensity changes → use **gradient values**; 3. **normalize**; 4. repeat for each model point; 5. assume a Gaussian distribution $(\bar g, S_g)$; 6. quality of fit of a new sample $s$ = **Mahalanobis distance** $f(s) = (s - \bar g)^T S_g^{-1}(s - \bar g)$; 7. pick the lowest value (highest probability).
+- Examples: ASM in 2D [Cootes et al. SPIE 2001 — initial, 1 iteration, 14 iterations; clinical example]; ASM in 3D [Fripp 2007; Bauer 2012]; cranio-maxillofacial (CMF) surgery examples — ASM enhanced with **muscle information**; model enhanced with facial muscles, muscle fibers (anisotropy of tissue properties), predefined surgical approaches, data preprocessing (e.g., cropping), simulation-specific features (e.g., sliding contact areas).
+
+### Statismo
+
+- **Statismo** — open-source framework for PCA-based statistical models (http://statismo.github.com): provides a high-level API; users work with **shapes, not vectors**; core functionality implemented only once; **exchanging models becomes easy**; portable file format (HDF5); "representer" carries model semantics; supports sampling, probabilities, conditional distributions. Reference: Lüthi M., Blanc R., Albrecht T., Gass T., Goksel O., Büchler P., Kistler M., Bousleiman H., Reyes M., Cattin P., Vetter T., *Statismo — A framework for PCA based statistical models*, Insight Journal.
+
+## 9.5 Active Appearance Models (AAM)
+
+### Building texture models
+
+- **Warp each training sample to the mean shape** to obtain a shape-free ("mean-free") patch; sample intensities from the shape-normalized image to form a **texture vector**; **normalize intensity** to eliminate lighting variations; then apply PCA on the normalized texture data (same procedure as for shape): $g \approx \bar g + P_g b_g$.
+
+### Combined models of appearance
+
+- Shape and texture are summarized by parameter vectors $b_s, b_g$; to handle **correlations** between them, stack $b = \begin{pmatrix} W_s b_s \\ b_g \end{pmatrix}$ (weighting $W_s$ accounts for unit differences between shape and texture), and apply **PCA on the combined $b$**: $b = P_c c$ — $c$ is the vector of **appearance parameters controlling both shape and texture**.
+- Linear model: shape and texture expressed directly as functions of $c$:
+
+$$x = \bar x + Q_s c, \qquad g = \bar g + Q_g c, \qquad Q_s = P_s W_s^{-1} P_{cs}, \quad Q_g = P_g P_{cg}$$
+
+- **Generating a new image**: generate the shape-free intensity image from $g$, then warp it using the control points described by $x$.
+
+### AAM model fitting
+
+- Minimize the difference between the new image and the **synthetic AAM image**; key step: estimate the parameter update from the current image sample; difference vector $\delta I = I_i - I_m$ (image vs. model).
+- Details: residual $r(p) = g_s - g_m$ with parameter vector $p = (c, t, u)$ (appearance, pose, texture normalization); error $E(p) = |r(p)|^2$; first-order Taylor expansion $r(p + \delta p) = r(p) + \frac{\partial r}{\partial p}\delta p$; choosing $\delta p$ to minimize $E(p + \delta p)$ gives
+
+$$\delta p = -R\, r(p), \qquad R = \left(\frac{\partial r}{\partial p}^T \frac{\partial r}{\partial p}\right)^{-1} \frac{\partial r}{\partial p}^T$$
+
+i.e., the pseudo-inverse of the **Jacobian** $J = \partial r/\partial p$, which is **estimated by applying small displacements on the training set** (precomputed).
+
+- Iterative algorithm: measure residual $r(p)$ → predict correction $\delta p = -R\,r(p)$ → update $p = p + k\,\delta p$ → repeat until convergence.
+- Examples: AAM face model fitting [Cootes 2004; Dornaika 2003]; **face synthesis** with parameters pose, shape, illumination [Blanz & Vetter 1999 — 3D morphable models].
+
+### Comparison ASM vs. AAM
+
+| Evaluation | Differences |
+|---|---|
+| ASM usually has a **larger capture range** | ASM searches **around** the current position along normals; AAM searches **at** the current position |
+| ASM is **faster** | ASM minimizes **distance between model and corresponding points**; AAM minimizes **difference between synthetic and target image** |
+| ASM usually has more accurate feature-point location | |
+| AAM gives a **better match to image texture** | |
+
+## 9.6 Conditional shape models and applications
+
+- **Conditional shape models**: predict the **full shape from surrogate variables** (lengths, angles, surface points, etc.).
+- **COSMOS — Corrections on Multi-Organ Segmentations** [Valenzuela et al. 2016]: aim — **"modify one, correct many!"**; single-organ correction approaches create inconsistencies with neighboring organs; solution: **conditional statistical shape models** via covariance-matrix decomposition → a **posterior shape model given a partially or completely corrected organ** (using submatrices $\Sigma_{gg}$, $\mu_g$ of the joint covariance/mean).
+- **Combining shape models with supervised learning** for bone shape and cortical thickness estimation.
+- **Image-guided soft-tissue deformation for CMF surgery**: pipeline — facial landmark tracking and pose estimation with a 3D active shape model → extract silhouette information → final shape modeling → texture mapping; adding silhouette information reduces reconstruction error (mm) as the number of silhouette frames increases (2–8 frames, two cases shown).
+- **Computer-assisted aesthetic face surgery**: web-based, improvements over time, data mining, iPad app.
+
+## 9.7 References
+
+1. Cootes T.F., Taylor C.J., Cooper D.H., Graham J., "Active Shape Models — Their training and application," *Computer Vision and Image Understanding*, 1995.
+2. Cootes T., Taylor C.J., "Statistical Models of Appearance for Computer Vision," Tech Report, University of Manchester, 2004.
+3. Heimann T., Meinzer H., "Statistical Shape Models for 3D Medical Image Segmentation: A Review," *Medical Image Analysis*, 2009.
+
+---
+# 10. Lecture 8 — (Multi-)Atlas & Patch-Based Segmentation (`AtlasPatch_segmentation.pdf`, 52 slides)
+
+*Mauricio Reyes, PhD, University of Bern — ARTORG Center for Biomedical Engineering, Medical Image Analysis Group. Slide credits: D. Rueckert, L. Wang, T. Tong.*
+
+**Table of contents**: atlas-based segmentation · multi-atlas-based segmentation · patch-based segmentation.
+
+## 10.1 Atlas-based segmentation (segmentation using registration)
+
+- Idea: an **atlas** (image + manual segmentation) is registered **atlas-to-image** to an unseen patient image; the atlas labels are propagated → automatic segmentation.
+- **Factors influencing the quality of the result**: image similarity; presence of pathology; quality of the registration; likelihood of the patient image (how typical it is of the atlas population).
+- **Bias in reference selection** [Rueckert et al. MICCAI 2001; mean-image computation: Guimond et al. CVIU/MICCAI 2000]: results built with different references are "**Not the same!**" — choosing a different reference subject yields different average models (average model using ref 1 vs. average intensity using ref 2) → motivates **natural coordinate references** and **group-wise modeling** (computing an unbiased mean image).
+
+## 10.2 Multi-atlas-based segmentation
+
+- Example atlas database [A. Hammers et al., *Three-dimensional maximum probability atlas of the human brain, with particular reference to the temporal lobe*, Human Brain Mapping 19(4):224–247, 2003]: T1-weighted MR from **30 volunteers** (ages 20–54, median 30.5; 15 male, 15 female); 256×256×124 volumes (resolution 1.25 × 0.94 × 1.50 mm); each image manually segmented into **83 anatomical structures**.
+- **Multi-atlas segmentation using classifier fusion** [Heckemann et al., NeuroImage 2006]: register every atlas to the unseen data → each atlas produces an individual segmentation → **decision fusion** → final segmentation.
+
+### How do you fuse?
+
+- **Global fusion strategies**: majority voting; weighted voting.
+- **Local fusion strategies**: locally weighted fusion; **STAPLE** (Simultaneous Truth And Performance Level Estimation).
+- **Shape-based averaging**.
+
+Details:
+
+- **Simple majority voting** (illustrated with 5 segmentations of a voxel: hippocampus ×2, background ×3 → background wins).
+- **Shape-based averaging (SBA)**: average the *shapes* of the segmentations, based on averaging the **distance transforms** of the segmentations (VOTE vs. SBA comparison shown).
+- **STAPLE** — probabilistic approach: *what is the most probable underlying true segmentation given the observed segmentations?* Simultaneously estimates the **performance of each rater/segmentation**: sensitivity $p$ (true-positive fraction) and specificity $q$ (true-negative fraction). Setup: $D$ = data (expert segmentations to merge) known; $T$ = ground truth unknown; $(p, q)$ per segmentation unknown. Find $(p, q)$ and $T$ **maximizing the likelihood** of observing $D$. Solved iteratively by **Expectation-Maximization** [Warfield et al., 2004]: initialize $p^{(0)}, q^{(0)}$ → E-step: compute $f(T \mid D, p^{(0)}, q^{(0)})$ → M-step: use the current ground-truth estimate to compute the next $p^{(1)}, q^{(1)}$ → iterate.
+
+### Multi-atlas segmentation with classifier **selection** and fusion
+
+[Aljabar et al., NeuroImage 2009]
+
+- Pipeline: affine registration of atlases to a standard space → **selection of similar atlases** for the unseen data (discard dissimilar ones) → non-rigid registration of selected atlases to the unseen data → individual segmentations → decision fusion.
+- Result: **classifier selection & fusion outperforms naive fusion of all atlases** (accuracy vs. number of atlases plot).
+
+## 10.3 Patch-based segmentation
+
+- Patch-based methods have been popular in computer vision: texture synthesis (Efros & Freeman 2001), in-painting (Criminisi et al. 2004), restoration (Buades et al. 2005), single-frame super-resolution (Protter et al. 2009).
+- **Basic idea**: only **coarse registration** required (rigid or affine); then use the same concept as label fusion, but at **patch level**.
+
+### From patch-based denoising to label fusion
+
+- **Non-local means** [Buades et al. 2005]: neighborhood averaging assuming **self-similarity** — every patch in a natural image has many similar patches in the same image; weights from patch similarity with an exponential weighting function $\exp(-x)$ and a **bandwidth** parameter controlling smoothing.
+- **Patch-based label fusion**: apply the same idea to label fusion — proposed **simultaneously by Rousseau et al. and Coupé et al. in 2011**. Each target-image patch is compared to patches in the (coarsely aligned) atlas library within a search window; atlas labels are propagated with NLM-style similarity weights.
+
+### Application: patch-based multi-organ segmentation of abdominal CT
+
+[Wolz et al., MICCAI 2013; IEEE-TMI 2013] — CT scans from **150 subjects**; **hierarchical patch-based label fusion**. Results (Dice / Jaccard, mean (std) [range]):
+
+| Structure | Dice | Jaccard |
+|---|---|---|
+| Kidneys | 92.5 (7.2) [51.5–98.2] | 86.8 (10.5) [34.6–96.4] |
+| Liver | 94.0 (2.8) [81.4–97.3] | 88.9 (4.8) [68.7–94.9] |
+| Pancreas | 69.6 (16.7) [6.9–90.0] | 55.5 (17.1) [3.6–83.3] |
+| Spleen | 92.0 (9.2) [26.4–98.2] | 86.2 (12.7) [15.2–96.4] |
+
+### Application: patch-based segmentation of brain structures (neonatal tissue)
+
+[Wang et al., NeuroImage 2014]
+
+- Pipeline: from template images build a **subject-specific atlas** for the testing subject (patch-based, sparse representation), impose **local spatial consistency**, then **level-set segmentation**; iterated in steps (Step 1, 2, 3, …).
+- Comparison of priors: population-based atlas vs. subject-specific atlas vs. subject-specific atlas **with spatial consistency**, for WM/GM/CSF on an original T2 image — subject-specific + consistency is sharpest.
+- Sparse patch representation (elastic-net problem): each target patch $X$ is coded over a dictionary $D = [\text{WM}\ \text{GM}\ \text{CSF}]$ of template patches:
+
+$$\min_{\alpha \ge 0}\ \tfrac{1}{2}\|X - D\alpha\|_2^2 + \lambda_1 \|\alpha\|_1 + \tfrac{\lambda_2}{2} \|\alpha\|_2^2$$
+
+with sparse non-negative coefficients $\alpha$ → Step 1: subject-specific atlas.
+
+- **How many templates are needed?** Box-whisker plots of Dice vs. number of templates (leave-one-out with a library of 20 templates) — performance saturates as templates increase.
+- **Leave-one-out cross-validation on 20 subjects** (WM Dice per subject, ~0.65–0.93): compared methods — **MV** (majority voting), **CLS** (coupled level sets; Wang L. et al., NeuroImage 2011), **CPM** (conventional patch-based method; Coupé et al., NeuroImage 2011), subject-specific atlas, proposed without spatial consistency, **proposed with spatial consistency (best)**.
+- **8 testing subjects with manual segmentations**: Dice for WM and GM (~0.8–0.94), proposed > CPM > CLS; difference maps shown. **94 testing subjects** for qualitative evaluation — proposed gives visually cleanest results.
+
+### Patch-based labeling vs. Sparse Representation Classification (SRC) vs. Discriminative Dictionary Learning for Segmentation (DDLS)
+
+[Tong et al., NeuroImage 2013]
+
+- **SRC**: assumes a target patch can be represented by a **few representative patches** from the patch library $p_i$ with sparse coefficients $a_i$ — solved as an **elastic-net problem**; labels follow from which library patches are selected.
+- **DDLS**: adds a **learned linear classifier** to dictionary learning — jointly groups patch and label information and imposes sparsity. Benefits: **decreases computational burden via a smaller dictionary**; **better exploits the discriminative power of the patch library**. Implementation: normalized **voxel-wise dictionaries and classifiers**; final output $\{D, W\}$ (dictionary + classifier); example dictionary shown with 16×16 atoms of size $5^3$.
+- **Three steps of DDLS**: (1) extract patch $p$; (2) solve the sparse coding problem for coefficients; (3) **label the voxel using the classifier** ($h_t$ = class label vector).
+- Qualitative: manual vs. automatic segmentations (hippocampus). Quantitative: comparison on the **ADNI dataset** using Dice — patch-based vs. SRC vs. **DDLS (best)**.
+
+---
+# 11. Interactive Demo — (Multi)Atlas & Patch-Based Segmentation (`atlas_patch_segmentation_demo.html`)
+
+*Companion artifact to Lecture 8 — "(Multi)Atlas & Patch-Based Segmentation — Interactive Demo", footer credit: M. Reyes · University of Bern & ETHZ.*
+
+A **self-contained single-file web app** (React 18 + Babel standalone from CDNs, dark GitHub-style theme, IBM Plex fonts) that lets you play with the three ideas of the lecture on **procedurally generated 2D brain slices**. Technical contents:
+
+## 11.1 Synthetic data generator
+
+- Deterministic pseudo-random pipeline: `mulberry32` seeded RNG → `noise2D` → bilinearly-smoothed `smoothNoise` → **fractional Brownian motion** `fbm` (4 octaves, amplitude halved and frequency doubled per octave).
+- `generateRealisticBrain(W, H, params)` draws a parametric axial brain slice; tunable anatomy parameters include: skull ellipse semi-axes (0.44/0.50), cortex thickness base (0.11), cortical folding frequency/amplitude (7 / 0.035), ventricle scales/offsets/angle, thalamus size (0.07), caudate size (0.04), tissue intensities (WM 0.78, GM 0.52, CSF 0.22), and noise level (0.04). Varying the seed/parameters produces an **atlas library** of distinct subjects plus a **target** subject, each with ground-truth label maps (background + 3 tissue classes; per-class colors and names, Dice bars rendered per class).
+- Utility components: `BrainCanvas` (renders intensity/label/mismatch modes, patch highlight box), `HeatmapCanvas` (normalized weight heatmaps), `DiceBar`, `InfoBox`, `SectionLabel`, `MiniPatch`; `computeDice(labelsA, labelsB, classId)` implements the standard Dice overlap per class.
+
+## 11.2 Tab 1 — "Single atlas segmentation" (`AtlasTab`)
+
+- Pick one atlas from the library; its (registered) label map is propagated to the target; the app shows the target, the propagated segmentation, and a **mismatch view**, plus **Dice scores per class (CSF/GM/WM) and their average** for "Atlas *k* → Target".
+- Demonstrates the lecture point that single-atlas quality depends on how similar the chosen atlas is to the patient.
+
+## 11.3 Tab 2 — "Multi-Atlas Fusion" (`FusionTab`)
+
+- Adjustable number of atlases; three fusion methods with in-app descriptions (quoted from the demo):
+  - **Majority Voting** — "Each atlas gets equal weight (w=1). The most common label wins. Simple but ignores atlas quality."
+  - **Global Weighted Voting** — "Each atlas gets one fixed weight based on overall image similarity to the target. The same weight applies at every voxel." Implemented as $w_a = \exp(-\mathrm{SSD}_a / (count \cdot 0.04))$ computed once over the whole image.
+  - **Locally Weighted Voting** — "Each atlas's weight varies per voxel based on local patch similarity (7×7 neighborhood). Better atlases in a region get more influence there." Implemented as $w_a(x) = \exp(-\mathrm{localSSD} / (count \cdot 0.03))$ over a 7×7 patch.
+- The explanatory text notes the key question of *how to weight each atlas's contribution* — equally, by global image similarity (one weight per atlas), or by local patch similarity ("an atlas that matches well near the ventricles may match poorly in the cortex").
+- **Voxel inspector**: click on the fused result to see, for that voxel, every atlas's weight as a bar (green when the atlas's label equals the true label, red otherwise) with the numeric weight; the caption clarifies for each mode ("All weights = 1. Pure vote counting." / "Global weights — computed once from whole-image similarity." / "Local weights — computed from a 7×7 patch around this voxel."). Dice bars per class update live ("Dice — N atlases, ⟨method⟩").
+
+## 11.4 Tab 3 — "Patch-Based NLM" (`PatchTab`)
+
+- Interactive **non-local-means label fusion** at a clicked target voxel ("Target (click to select)"). Sliders: **patch size** (default 5×5), **search radius** (2–15, default 5), and **β** bandwidth ("Low β → few patches dominate · High β → many contribute"); fixed $\sigma^2 = 0.008$.
+- Computation (as implemented): extract the target patch around the selected voxel; for every atlas and every location in the search window, compute the patch SSD and the NLM weight
+
+$$w = \exp\left(-\frac{\|P_{target} - P_{atlas}\|_2^2}{2\, N\, \beta\, \sigma^2}\right)$$
+
+($N$ = number of pixels in the patch). Matches are ranked by weight; per-label scores accumulate the weights and the label decision is displayed with the formula shown in the UI:
+
+$$L(x) = \arg\max_l\ \frac{\sum_i w_i\, \delta(\text{label}_i = l)}{\sum_i w_i}$$
+
+- Displays: the top-matching mini-patches with their weights/labels, the resulting per-class probabilities, correctness indicator (✓/✗ vs. the true label), and **"NLM Weight Heatmaps per Atlas"** showing where in each atlas's search window the weight mass concentrates.
+
+The demo thus operationalizes exactly the lecture concepts: single-atlas propagation → fusion strategies (majority/global/local) → patch-based NLM label fusion with patch size, search window, and bandwidth as the governing parameters.
+
+---
