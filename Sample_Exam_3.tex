@@ -1,0 +1,490 @@
+%% Sample Exam 3 -- Medical Image Analysis (ETH Zurich, 2026)
+%%
+%% Written in the style of Example_Exam_with_Answers.pdf.
+%%
+%% Compile the version WITH solutions:      pdflatex "\def\withanswers{}\input{Sample_Exam_3.tex}"
+%% Compile the blank version (no answers):  pdflatex Sample_Exam_3.tex
+%%
+\ifx\withanswers\undefined
+  \documentclass[11pt]{exam}
+\else
+  \documentclass[11pt,answers]{exam}
+\fi
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------- page style
+\pagestyle{foot}
+\firstpageheader{}{}{}
+\firstpagefooter{}{}{}
+\runningheader{}{}{}
+\runningfooter{}{}{Page \thepage}
+
+% -------------------------------------------------------------- multiplechoice
+% Reproduce the "(A) (B) (C) ..." labelling of the original exam.
+\renewcommand{\choicelabel}{$\bigcirc$~(\Alph{choice})}
+
+% ---------------------------------------------------------- true/false macros
+% \TFT -> the statement is TRUE, \TFF -> the statement is FALSE.
+% In the answer version the correct word is set in capitals and bold.
+\newcommand{\TFT}{\ifprintanswers\textbf{TRUE}\hspace{1.1em}False\else True\hspace{1.1em}False\fi}
+\newcommand{\TFF}{True\hspace{1.1em}\ifprintanswers\textbf{FALSE}\else False\fi}
+
+% ------------------------------------------------------------- writing space
+% Reserves room to write in the blank version; collapses in the answer version.
+\newcommand{\answerspace}[1]{\ifprintanswers\else\vspace{#1}\fi}
+
+\begin{document}
+
+% ------------------------------------------------------------------ title page
+\begin{center}
+  {\LARGE\bfseries Sample Exam}\\[2mm]
+  {\Large Medical Image Analysis}\\[6mm]
+\end{center}
+
+\vspace{4mm}
+\noindent Student name:\hrulefill
+
+\vspace{6mm}
+\noindent Immatriculation number:\hrulefill
+
+\vspace{10mm}
+
+\begin{center}
+  {\large\bfseries Exam Questions}
+\end{center}
+
+\noindent\textbf{Note:} All the questions have equal weight.
+
+\vspace{4mm}
+
+\begin{questions}
+
+% =============================================================== Question 1 ===
+\question
+In 2D acquisitions, 2D image slices are acquired in one pre-defined direction one after the
+other, and the final 3D volume is created by stacking the 2D slices. The voxel sizes are given
+as in-plane (two values, the pixel size within the imaging plane) and through-plane (one value,
+the slice thickness). Recall that the field-of-view is the real-world size of the entire image,
+i.e.\ image size $\times$ voxel size. Based on this please compute the following.
+
+\begin{parts}
+
+  \part A \emph{coronal} acquisition with voxel size in-plane $0.9 \times 0.9$~mm$^2$ with 260
+  pixels in both directions and voxel size through-plane $3.0$~mm with 64 pixels is acquired.
+  What is the field-of-view in the head-to-toe, left-to-right and anterior-to-posterior
+  directions, respectively?
+
+  \begin{solution}
+    Answer: $234 \times 234 \times 192$~mm$^3$.
+
+    The coronal plane contains the head-to-toe and the left-to-right directions, so both in-plane
+    directions give $260 \times 0.9 = 234$~mm. The through-plane direction of a coronal
+    acquisition is anterior-to-posterior: $64 \times 3.0 = 192$~mm.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part The protocol has to be changed so that the anterior-to-posterior coverage is at least
+  210~mm, while the slice thickness stays at $3.0$~mm. How many slices have to be acquired?
+
+  \begin{solution}
+    Answer: 70 slices.
+
+    $210 / 3.0 = 70$. The 64 slices of the original protocol only cover 192~mm.
+  \end{solution}
+\answerspace{1.8cm}
+
+  \part You want to resample the volume of part (a) to isotropic voxels of
+  $1.0 \times 1.0 \times 1.0$~mm$^3$. What are the resize factors and the resulting image size?
+  In which of the three directions is the resampling least justified by the information actually
+  contained in the data, and why?
+
+  \begin{solution}
+    Answer: resize factors $0.9 \times 0.9 \times 3.0$, resulting image size
+    $234 \times 234 \times 192$~voxels.
+
+    The resize factor per direction is the ratio of the old to the new voxel size: $0.9/1.0 = 0.9$
+    head-to-toe, $0.9/1.0 = 0.9$ left-to-right and $3.0/1.0 = 3.0$ anterior-to-posterior.
+    Applying these: $260 \cdot 0.9 = 234$, $260 \cdot 0.9 = 234$, $64 \cdot 3.0 = 192$. The
+    field-of-view is unchanged, as it must be.
+
+    The anterior-to-posterior direction. It is the through-plane direction, and it is being
+    upsampled by a factor of 3: the interpolation invents two new samples between every pair of
+    acquired slices. No new information is created --- the effective resolution in that direction
+    is still that of a 3~mm slice, even though the voxel grid now says 1~mm.
+  \end{solution}
+\answerspace{4.5cm}
+
+\end{parts}
+
+% =============================================================== Question 2 ===
+\question
+Histogram equalization improves the contrast of an image by finding a monotonically increasing
+intensity mapping $i \mapsto f(i)$ that flattens the histogram. Let $p(i)$ denote the probability
+density function of the intensities, $P(i) = \int_0^i p(j)\,dj$ the cumulative distribution
+function, and $i_{max}$ the maximum intensity. Which of the two mappings below is the one that
+flattens the histogram? Please circle the correct choice.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle f(i) = i_{max}\, p(i)$
+  \hspace{2.6cm}
+  $\displaystyle f(i) = i_{max}\, P(i) = i_{max} \int_0^i p(j)\, dj$
+\end{center}
+\vspace{2mm}
+
+\begin{solution}
+  Answer: Right one --- the scaled \emph{cumulative} distribution function.
+
+  Changing variables gives
+  $p(f(i)) = p(i)\,\frac{di}{df(i)} = p(i) \cdot \frac{1}{p(i)} \cdot \frac{1}{i_{max}}
+  = \frac{1}{i_{max}}$, i.e.\ a uniform (flat) density. Note also that only the CDF is guaranteed
+  to be monotonically increasing, which the mapping has to be in order not to reorder intensities;
+  the PDF is not.
+\end{solution}
+\answerspace{1.5cm}
+
+% =============================================================== Question 3 ===
+\question
+When a Markov random field prior is used, segmentation can be written either as a posterior
+maximization or as an energy minimization. $I$ is the image, $c$ the labelling, $G(x)$ the
+neighbours of pixel $x$, and $Z$ a normalization constant.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle \max_c\ \log \Big[ \prod_{x \in \Omega} p(I(x) \mid c(x)) \Big]
+   + \log \Big[ \tfrac{1}{Z} \exp\{-E(c)\} \Big]$
+\end{center}
+\vspace{1mm}
+\begin{center}
+  $\displaystyle \min_c\ \underbrace{\sum_{x \in \Omega} g\big(I(x) \mid \theta_{c(x)}\big)}_{\text{unary term}}
+   \ +\ \underbrace{\sum_{x \in \Omega} \sum_{y \in G(x)} d\big(c(x), c(y)\big)}_{\text{pairwise term}}$
+\end{center}
+\vspace{2mm}
+
+\begin{parts}
+  \part Please indicate which term corresponds to which term in the two formulations.
+
+  \begin{solution}
+    Answer:
+    \begin{align*}
+      \log \textstyle\prod_{x} p(I(x) \mid c(x))
+        &\ \Longleftrightarrow\ \text{the unary term}
+        &&\text{(likelihood / data fidelity)}\\[1mm]
+      \log \tfrac{1}{Z}\exp\{-E(c)\}
+        &\ \Longleftrightarrow\ \text{the pairwise term}
+        &&\text{(prior / neighbourhood consistency)}
+    \end{align*}
+
+    The correspondence requires the data model to be exponential, i.e.\
+    $p(I(x) \mid c(x)) \propto \exp\{-g(I(x)\mid\theta_{c(x)})\}$, so that taking the logarithm of
+    the product turns it into the unary sum. The pairwise term is exactly $E(c)$, and $\log Z$
+    does not depend on $c$ and therefore drops out of the maximization.
+  \end{solution}
+\answerspace{2.8cm}
+
+  \part Which theorem guarantees that a prior satisfying the Markov property can be written as a
+  Gibbs distribution $\frac{1}{Z}\exp\{-E(c)\}$ with a locally defined energy $E$?
+
+  \begin{solution}
+    Answer: the Hammersley--Clifford theorem. It states that any probability distribution
+    satisfying a Markovian property is a Gibbs distribution for an appropriate locally defined
+    energy, and vice versa.
+  \end{solution}
+\answerspace{1.8cm}
+\end{parts}
+
+% =============================================================== Question 4 ===
+\question
+Please indicate whether the statement is true or false by circling the correct choice in each of
+the following.
+
+\begin{parts}
+  \part \TFT\ \ A rigid-body transformation in 3D has 6 degrees of freedom: three rotation angles
+  and three translations.
+
+  \part \TFT\ \ For \emph{isotropic} scaling, $SRx = RSx$, i.e.\ the order in which rotation and
+  scaling are applied does not matter.
+
+  \part \TFF\ \ In homogeneous coordinates, a 3D affine transformation is written as a
+  $3 \times 3$ matrix.
+
+  \part \TFF\ \ The determinant of the Jacobian of a transformation is larger than 1 in the
+  regions that the transformation compresses.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- three rotations, one about each axis, plus a translation vector in $\mathbb{R}^3$.
+  In 2D the rigid model has 3 degrees of freedom (one angle, two translations).
+
+  (b) TRUE --- with $S = sI$ the scaling commutes with any matrix. This is no longer the case for
+  \emph{anisotropic} scaling, where $S = \mathrm{diag}(s_1, s_2, s_3)$: there the order matters a
+  great deal, and applying the factors in the wrong order introduces shearing.
+
+  (c) FALSE --- it is a $4 \times 4$ matrix,
+  $\tilde A = \left[\begin{smallmatrix} A & t \\ \mathbf{0} & 1 \end{smallmatrix}\right]$ with
+  $A \in \mathbb{R}^{3\times3}$ and $t \in \mathbb{R}^3$. The $3 \times 3$ homogeneous matrix is
+  the 2D case.
+
+  (d) FALSE --- it is the other way around: $\det(J) > 1$ means local \emph{expansion},
+  $\det(J) < 1$ local compression, and $\det(J) = 1$ no volume change. The divergence
+  $\nabla \cdot T$, the trace of the Jacobian, carries related information.
+\end{solution}
+
+% =============================================================== Question 5 ===
+\question
+A free-form deformation (FFD) model with cubic B-splines is used for the non-linear registration
+of two 3D images. The control points are placed on a uniform grid of $10 \times 12 \times 8$
+points. How many parameters does this transformation model have, and how does this compare with
+the number of parameters of a 3D affine transformation?
+
+\begin{solution}
+  Answer: $10 \cdot 12 \cdot 8 = 960$ control points, each carrying a displacement vector in
+  $\mathbb{R}^3$, hence $960 \times 3 = 2880$ parameters. A 3D affine transformation has 12
+  parameters (3 rotations $+$ 3 translations $+$ 3 scalings $+$ 3 shears).
+
+  The FFD model therefore has roughly 240 times more degrees of freedom, which is exactly the
+  point: the affine model is global and cannot capture local deformation, while the FFD model can.
+  Note that the parameter count of the FFD depends only on the number of control points, not on
+  the number of voxels --- that is what makes it tractable compared with one displacement vector
+  per voxel.
+\end{solution}
+\answerspace{3.2cm}
+
+% =============================================================== Question 6 ===
+\question
+The N3 algorithm corrects the bias field in MRI. It works in the log domain, where the observed
+image is $j(x) = b(x) + i(x)$ with $b$ the bias field and $i$ the bias-free image, and where the
+bias field is assumed to be independent of the image intensities. Each iteration alternates
+between two estimation problems. Please briefly describe what each of them does, and explain why
+the algorithm has to iterate with narrow Gaussians instead of correcting the bias in a single
+step. You do not need to write down the equations.
+
+\begin{solution}
+  Answer: \emph{Estimating the distribution of the bias-free intensities.} Because $b$ and $i$
+  are independent and add in the log domain, the observed intensity distribution is the
+  convolution $J = I * B$. Since the multiplicative bias is close to 1, its logarithm is close to
+  0, so $B$ can be approximated by a Gaussian with a small standard deviation and $J$ is a blurred
+  version of $I$. The distribution $I$ is therefore recovered by \emph{sharpening} $J$, using a
+  Wiener-style deblurring filter in the Fourier domain.
+
+  \emph{Estimating the field.} Given $I$ and $B$, the expected bias-free intensity corresponding
+  to an observed intensity $j$ is $E[i \mid j]$, so the bias estimate is $b_e(j) = j - E[i \mid j]$.
+  This is a one-dimensional integral and is evaluated numerically. It is computed at anchor points
+  and then smoothed over space with splines or radial basis functions --- this is where the prior
+  knowledge that the bias field is spatially smooth enters --- and subtracted from $j$.
+
+  Why iterate: $B$ is not actually known, it is only assumed to be Gaussian. Deconvolving with a
+  wide Gaussian is unstable and can produce estimates that are not valid distributions at all.
+  Since a wide Gaussian is a convolution of narrow ones, the correction is instead applied as a
+  sequence of small, stable steps. Iterating also compensates for the other approximations made
+  along the way: the noise term was ignored, and the deblurring filter is itself only approximate.
+\end{solution}
+\answerspace{7.5cm}
+
+% =============================================================== Question 7 ===
+\question
+Which of the following statements on the loss metrics used for intensity-based registration is
+\textbf{inaccurate}?
+
+\begin{choices}
+  \choice The sum of squared differences assumes that the intensities of the two images are
+  directly comparable, which restricts it to intra-modality registration.
+  \choice Normalized cross-correlation attains its maximum magnitude when the two images are
+  related by a linear intensity relationship that is the same at every pixel; both positive and
+  negative correlations indicate alignment, which is why the squared value is used in the loss.
+  \choice Mutual information is maximized when the joint intensity distribution equals the product
+  of the two marginals, that is, when the intensities of the two images are statistically
+  independent.
+  \choice Mutual information can capture more complicated, non-linear relationships between the
+  intensities than normalized cross-correlation, but it is harder to compute.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  It states exactly the condition under which mutual information is \emph{zero}:
+  $\mathrm{MI} = 0$ if and only if $p(I,J) = p(I)p(J)$, which means the two images tell us nothing
+  about each other. Registration \emph{maximizes} MI, because aligned images have a strong
+  statistical relationship and their joint distribution is then as far as possible from the
+  product of the marginals.
+\end{solution}
+
+% =============================================================== Question 8 ===
+\question
+Which of the following statements about interpretability and explainable AI (XAI) in medical image
+analysis is \textbf{incorrect}?
+
+\begin{choices}
+  \choice Black-box, or model-agnostic, methods such as LIME require no access to the internals of
+  the model, whereas gradient-based methods such as Grad-CAM are white-box methods.
+  \choice Grad-CAM generalizes CAM: the importance weight of a feature map is the global average of
+  the gradients of the class score with respect to that feature map, which makes it applicable to
+  any CNN, while CAM requires a particular architecture.
+  \choice Because saliency maps show which parts of the image the model actually uses, a model whose
+  saliency lies largely outside the anatomical region of interest is necessarily performing poorly
+  on the task.
+  \choice TCAV explains a prediction in terms of human-defined concepts by measuring the directional
+  derivative of the class score along a concept activation vector, and can be used to spot biases in
+  a data set.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  High accuracy and misplaced attention are entirely compatible --- that is precisely what makes
+  shortcut learning dangerous. In the glioma grading case study, normalizing the intensities over
+  the whole image instead of over the brain area \emph{raised} the AUC from 0.8857 to 0.9841, while
+  the saliency maps showed the model attending outside the brain: the model was exploiting an
+  artefact of the preprocessing. The pneumonia classifier that learned to recognize the clinical
+  site from hospital-specific markers is the same story. Saliency outside the region of interest is
+  a reason to distrust a good score, not evidence of a bad one.
+\end{solution}
+
+% =============================================================== Question 9 ===
+\question
+Which of the following statements about self-attention, as it was built up in the lecture, is
+\textbf{incorrect}?
+
+\begin{choices}
+  \choice Parameter-free dot-product attention, $Y = \mathrm{Softmax}(XX^T)X$, has no capacity to
+  learn from data, and every feature within a token plays an equal role in determining the attention
+  coefficients.
+  \choice Introducing a single learnable matrix $U$ and computing
+  $Y = \mathrm{Softmax}(XUU^TX^T)\,XU$ still yields a symmetric matrix of attention scores, which is
+  why separate key and query projections are introduced.
+  \choice The scaling by $1/\sqrt{D_K}$ is used because the gradients of the softmax become very
+  small for very large or very small inputs; if the entries of $Q$ and $K$ have unit variance, the
+  entries of $QK^T$ have variance $D_K$.
+  \choice In multi-head self-attention the outputs of the individual heads are averaged, so that the
+  output dimension equals $D_V$ irrespective of the number of heads.
+\end{choices}
+
+\begin{solution}
+  Answer: D.
+
+  The heads are \emph{concatenated}, not averaged, and the concatenation is then projected back:
+  $Y = \mathrm{Concat}(H_1, \dots, H_H)\,W_0$ with
+  $\mathrm{Concat}(\cdot) \in \mathbb{R}^{N \times H D_V}$ and $W_0 \in \mathbb{R}^{H D_V \times D}$.
+  Averaging would defeat the purpose of using several heads, which --- by analogy with the multiple
+  filters of a convolutional layer --- is to let different heads attend to different patterns.
+\end{solution}
+
+% ============================================================== Question 10 ===
+\question
+In the Noise2Noise setting you have no clean images at all. For each input $x_n$ you only have
+several \emph{noisy} versions $y_n^m$ of the underlying clean image $y_n$, and you train with
+$\arg\min_\theta \sum_n \sum_m \|y_n^m - f(x_n;\theta)\|^2$. Under which condition does this give
+the same solution as supervised training on clean targets, in the limit of infinite data?
+
+\begin{choices}
+  \choice When the noise is multiplicative rather than additive.
+  \choice When the average of the noisy targets is the clean image, $\mathbb{E}[\hat y \mid x] = y$,
+  because the prediction that minimizes an $\ell_2$ loss is the mean of the targets.
+  \choice When at least half of the training targets are clean images.
+  \choice When an adversarial loss is added to the $\ell_2$ loss, so that the outputs are forced to
+  look realistic.
+  \choice Never --- training on noisy targets always biases the solution towards the noise.
+\end{choices}
+
+\begin{solution}
+  Answer: B.
+
+  Minimizing $\mathbb{E}_{\hat y}[\|f(x;\theta) - \hat y\|^2]$ over the prediction gives
+  $f(x;\theta) = \mathbb{E}_{\hat y}[\hat y]$: the $\ell_2$-optimal prediction is the mean of the
+  targets it is trained against. So if the noisy targets are distributed around the clean image,
+  $\mathbb{E}[\hat y \mid x] = y$, the network converges to the clean image even though it never
+  sees one. The network cannot fit the individual noise realizations, because a single set of
+  parameters has to satisfy all of them at once, and only their mean does.
+\end{solution}
+
+% ============================================================== Question 11 ===
+\question
+Consider a classification network that takes grey-scale input images of size $64 \times 64$ with
+one input channel. All convolutions are \emph{valid} (no padding, $P = 0$), and the network uses
+strided convolutions instead of pooling:
+
+\begin{itemize}
+  \item \textbf{Conv1}: 16 kernels with kernel size $K = 5 \times 5$ and stride $S = 2$ in each
+    direction.
+  \item \textbf{Conv2}: 32 kernels with $K = 5 \times 5$ and $S = 2$.
+  \item \textbf{Conv3}: 64 kernels with $K = 3 \times 3$ and $S = 2$.
+\end{itemize}
+
+\noindent Recall the channel size of a strided, valid convolution:
+$N_l = \lceil (N_{l-1} - k_1)/s_1 \rceil$. Circle True or False:
+
+\begin{parts}
+  \part \TFT\ \ The output of Conv3 has a spatial size of $5 \times 5$.
+
+  \part \TFF\ \ The global receptive field of a neuron in Conv3 is $13 \times 13$.
+
+  \part \TFF\ \ The global stride of a neuron in Conv3 is $6 \times 6$, since the three strides of
+  2 add up.
+
+  \part \TFT\ \ The total number of convolutional kernel weights (excluding the biases) is
+  $5 \cdot 5 \cdot 1 \cdot 16 + 5 \cdot 5 \cdot 16 \cdot 32 + 3 \cdot 3 \cdot 32 \cdot 64
+  = 31\,632$.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- applying $N_l = \lceil (N_{l-1} - k)/s \rceil$ layer by layer:
+  Conv1 gives $\lceil (64-5)/2 \rceil = \lceil 29.5 \rceil = 30$;
+  Conv2 gives $\lceil (30-5)/2 \rceil = \lceil 12.5 \rceil = 13$;
+  Conv3 gives $\lceil (13-3)/2 \rceil = 5$.
+
+  (b) FALSE --- it is $21 \times 21$. Tracking the receptive field $R$ and the jump $j$ from
+  $R = 1$, $j = 1$ with $R \leftarrow R + (K-1)\cdot j$ and $j \leftarrow j \cdot S$:
+  Conv1 $\rightarrow R = 5,\ j = 2$; Conv2 $\rightarrow R = 13,\ j = 4$;
+  Conv3 $\rightarrow R = 21,\ j = 8$. The value $13$ is the receptive field one layer earlier,
+  after Conv2.
+
+  (c) FALSE --- strides compound multiplicatively: $2 \cdot 2 \cdot 2 = 8$, so the global stride
+  is $8 \times 8$.
+
+  (d) TRUE --- $400 + 12\,800 + 18\,432 = 31\,632$. Note that strided convolutions reduce the
+  spatial dimensions quickly, but unlike max pooling they do \emph{not} buy any translation
+  invariance, and they discard information --- the more so the larger the stride.
+\end{solution}
+
+% ============================================================== Question 12 ===
+\question
+Which of the following statements on restoration, synthesis and self-supervised learning are
+correct (multiple answers are possible)?
+
+\begin{choices}
+  \choice Losses of the MSE type tend to produce over-smoothed restorations, which is one
+  motivation for perceptual losses, where the two images are passed through a separately trained
+  network and their intermediate features are compared.
+  \choice In CycleGAN-style synthesis from unpaired data, the cycle-consistency term requires that
+  mapping a source image to the target domain and back returns the original image.
+  \choice In contrastive learning, the two views of an image have to be produced by geometric
+  transformations only, since intensity changes would destroy the surrogate label.
+  \choice A masked autoencoder uses a larger encoder on the visible parts of the image and a
+  smaller decoder to reconstruct the masked parts; the trained encoder is then used as a backbone
+  for downstream tasks.
+  \choice Adversarial losses compare individual pairs of images, which is what makes them suitable
+  for unpaired data sets.
+\end{choices}
+
+\begin{solution}
+  Answer: (A), (B) and (D) are correct.
+
+  (C) is wrong: the transformations used in contrastive learning are explicitly \emph{not}
+  restricted to geometric ones and routinely include intensity changes --- the whole point is that
+  the representation should be invariant to them. (The one place where transformations do have to
+  be handled carefully is the \emph{local} contrastive loss, where they must not destroy the patch
+  correspondences, so they are either restricted or undone before the patches are compared.)
+
+  (E) is wrong in its premise, and the premise is what makes the conclusion work. An adversarial
+  loss is a \emph{distributional} distance: the discriminator is not shown a pair of corresponding
+  images, it is asked whether a single image looks like it came from the real set. That is exactly
+  why it can be used when no correspondence between source and target images exists.
+\end{solution}
+
+\end{questions}
+
+\end{document}
