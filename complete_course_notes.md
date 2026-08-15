@@ -1989,3 +1989,498 @@ with $\mathcal{L}_{GAN}(f, D_y, y, x) = \min_\theta \max_\phi \mathbb{E}_{y\sim 
 - Final slide: **paired vs. unpaired training** comparison.
 
 ---
+# 15. Lecture 12 — Uncertainty Estimation in Deep Learning Models (`lecture12_uncertainty_estimation.pdf`, 153 slides / 47 numbered pages)
+
+*Ender Konukoglu, ETH Zürich, May 12, 2026*
+
+**Framing question**: predictions of machine learning models, like any other models, may be uncertain; quantifying this uncertainty for medical imaging applications can be crucial. How do we do this for deep learning models? Outline: (1) the problem; (2) mathematical treatment — posterior distribution, approximations, evaluation; (3) examples; (4) unintuitive behavior in high dimensions.
+
+## 15.1 The problem — why uncertainty matters
+
+- **Classification**: OCT eye-image classification [Kermany et al. 2018; Laves et al. 2019] — some cases are very difficult even for experts; disease effects can be very subtle; the image may not provide enough information for a clear classification → important to acknowledge this and **assign high uncertainty**.
+- **Human–AI interaction** [Tschandl et al., *Nature Medicine* 2020 — skin cancer recognition]: deep learning benefits raters; classes predicted with **high confidence are taken more into account by raters**; *inaccurate but highly confident* predictions adversely affect raters — the study shows raters changed their opinions in favor of a wrong model prediction when the model was very confident. **It is crucial not to be highly confident when you are wrong.**
+- **Segmentation**: images show clearly where objects are, but **boundaries are much less clearly defined** due to limited resolution and contrast; raters effectively use prior knowledge when delineating. Raters cannot agree on boundaries [Becker et al. 2019 — prostate segmented manually by 6 raters]. Why it matters [Carass et al. 2017 — MS lesions, 4 input sequences, 2 expert raters]: segmentation uncertainty → uncertainty in **lesion (disease) load quantification**; in longitudinal settings, global/local lesion-load differences drive assessment of **treatment efficacy** — uncertainty must be taken into account for correct assessment.
+- **Detection**: brain-MRI metastases example — identifying *clearly normal* and *clearly abnormal* anatomy helps clinical workflow efficiency; some abnormalities are hard to discern from normal anatomy, require human readers, and should be flagged via **high uncertainty**.
+- **Reconstruction from undersampled data**: an **ill-posed** problem — missing information must be complemented by priors, and priors can fill in the image **in multiple ways**; reconstruction uncertainty → uncertainty in morphological measurements; models **should not provide confident predictions for information missing from the data**.
+- **Generally in model fitting**: uncertainty exists wherever data underdetermines the fit; **uncertainty in extrapolation is amplified further** by architecture and parameter choices.
+
+## 15.2 Mathematical treatment
+
+### Notation and sources of uncertainty
+
+Notation: features $x$; labels $y$; network $f(x;\theta)$; parameters $\theta$; training set $D$; **model specification $M$** (architecture + hyper-parameters). Standard prediction $y \approx f(x;\theta^*)$ with $\theta^* = \arg\min_\theta \mathcal{L}(D;\theta)$. A **Bayesian approach** is taken (good resources by David MacKay, Christopher Bishop, Kevin Murphy).
+
+**Sources of uncertainty in this setup**:
+
+1. $x$ may not uniquely identify $y$.
+2. $D$ may not uniquely identify a $\theta^*$.
+3. $D$ is itself a random sample.
+4. $M$ is probably not a unique model for the problem.
+5. The combination of $D$, $f(\cdot;\theta^*)$ and $M$ may not solve the task perfectly — *(the lecturer notes this last one is strictly a source of per-sample error rather than uncertainty).*
+
+**Approach with caution** (the lecturer's caveats): defining "uncertainty" is challenging — specific definitions in the literature are still debated; this treatment is one attempt, full of personal choices; but the topic is very important and should be studied despite the disagreements.
+
+### The posterior distribution as the end-goal
+
+The goal of uncertainty estimation is the characterization of the **posterior distribution** $p(y \mid x)$ — the distribution of all labels likely to be associated with $x$; from it one can evaluate $\mathbb{E}_{y|x}[y]$ or draw samples. Note $p(y|x)$ contains **no model or training-data components** — those must be marginalized. Full probabilistic model and factorization:
+
+$$p(y, x, \theta, D, M) = p(M)\, p(D)\, p(\theta \mid D, M)\, p(x)\, p(y \mid x, \theta, M)$$
+
+- $p(M)$: prior over model specifications; $p(D)$: probability of drawing the training set from the population; $p(\theta \mid D, M)$: parameter posterior — how well each $\theta$ explains $D$; $p(x)$: probability of observing $x$; $p(y \mid x, \theta, M)$: prediction distribution.
+- Marginalization required:
+
+$$p(y \mid x) = \int_M \int_D \int_\theta p(y \mid x, \theta, M)\, dp(\theta \mid D, M)\, dp(D)\, dp(M)$$
+
+**All of these integrations are challenging**: $\int_M$ — a LOT of model choices, infeasible to evaluate the inner integrals for all; $\int_D$ — would require all possible training sets of size $|D|$, but we usually have only one; $\int_\theta$ — sounds feasible, but $p(\theta|D,M)$ is hard to get since $\theta$ is very high-dimensional.
+
+### What standard training/inference does (in this language)
+
+Fix one $M$ and one $D$ (no hyper-parameter optimization; the story is similar with it):
+
+- Training: $\theta^* = \arg\min_\theta \mathcal{L}(D;\theta)$ ⇒ $p(\theta \mid D, M) \approx \delta(\theta - \theta^*)$ (Dirac).
+- Inference: $y \approx f(x;\theta)$ ⇒ $p(y \mid x, \theta, M) \approx \delta(y - f(x;\theta))$.
+- Then the marginalization collapses: $p(y \mid x, M, D) = \delta(y - f(x;\theta^*))$, so the "usual" prediction is $f(x;\theta^*) = \mathbb{E}_{y|x,M,D}[y]$ — a point mass with **no uncertainty at all**.
+
+### Approximations
+
+Two main directions: **(1) sampling instead of integration**, **(2) approximating posterior distributions.**
+
+**Ancestral sampling** from $p(y, \theta, D, M \mid x) = p(M) p(D) p(\theta|D,M) p(y|x,\theta,M)$:
+
+1. $D^s \sim p(D)$; 2. $M^s \sim p(M)$; 3. $\theta^s \sim p(\theta \mid D^s, M^s)$; 4. $y^s \sim p(y \mid x, \theta^s, M^s)$.
+
+The $y^s$ are samples from the target distribution; point estimate $\hat y = \frac{1}{S}\sum_s y^s$. In reality even sampling from these distributions is challenging → combine with approximations of posteriors and priors.
+
+**Approximating $p(D)$** — usually only one training set $D'$ is given. Options:
+
+1. $p(D) \approx \delta(D - D')$.
+2. Approximate sampling by drawing **smaller data sets from $D'$**: random subsets with or without replacement (bootstrap) [Efron & Tibshirani 1993], or **non-overlapping partitions** ($\cup D^s = D'$, $D^{s_1}\cap D^{s_2} = \emptyset$). This option is heavily used in **ensembling** methods, which show great prediction quality and uncertainty estimates.
+
+**Approximating $p(M)$** — the model specification is chosen by us, so in theory we can sample it; priors over models have been investigated [Akaike 1998; van der Linde 2003]. Options:
+
+1. $p(M) \approx \delta(M - M')$ at a preferred model.
+2. Approximate sampling over models: select a number of preferred models (e.g., an FCN *and* a U-Net for segmentation), or **generate new models around a preferred one** (adding layers/channels to a U-Net, changing the encoder, removing skip connections). Covering all models is infeasible; the cost is the time/energy to train them all.
+
+**Approximating $p(\theta \mid D, M)$** — via Bayes (with $M$ given):
+
+$$p(\theta \mid D, M) = \frac{p(D \mid \theta, M)\, p(\theta \mid M)}{p(D)}$$
+
+- $p(\theta|M)$: prior over parameters; $p(D|\theta,M)$: likelihood.
+- Correspondences with training: usual training = **maximum likelihood** ($\arg\max_\theta \log p(D|\theta,M)$ ↔ minimizing $\mathcal{L}(D;\theta)$); with weight regularization (e.g., weight decay) it is **MAP** ($\arg\max_\theta \log p(D|\theta,M) + \log p(\theta|M)$, where $\log p(\theta|M)$ ↔ the regularizer $R(\theta)$). MAP = MLE when $p(\theta|M) = const$.
+- **Difficulties specific to deep learning** (via $\max_\theta \log p(D|\theta,M) \Leftrightarrow \min_\theta \mathcal{L}(D;\theta)$):
+  - $\mathcal{L}$ is highly non-convex with multiple local minima ⇒ $p(\theta|D,M)$ is possibly **multi-modal**.
+  - Different initializations lead to very different "optimal" parameters ⇒ **modes can be far apart**.
+  - $p(\theta|M)$ can remedy this a bit but rarely completely without sacrificing prediction performance.
+  - Changing parameters in one layer changes what other layers should be ⇒ **strong statistical dependencies between elements of $\theta$** ⇒ factorized approximations $p(\theta|D,M) \approx \prod_i p(\theta_i|D,M)$ may be poor.
+- **Three main options**:
+  1. $p(\theta|D,M) \approx \delta(\theta - \theta^*)$ with one MAP estimate — assumes a unimodal, sharply peaked posterior (**most likely not true**).
+  2. **Approximate sampling via multiple trainings**: $\theta^s = \arg\max_\theta \log p(D|\theta,M) + \log p(\theta|M)$ with a **different initialization per sample**, $\theta_0^s \sim p(\theta_0|M)$ (simple factorized prior) — assumes different initializations capture different posterior modes (**deep ensembles**).
+  3. **Approximate the posterior around a MAP estimate with a known distribution**, $p(\theta|D,M) \approx p(\theta|\theta^*, M)$ — e.g., **Laplace approximation** $p(\theta|D,M) \approx \prod_i \mathcal{N}(\theta_i; \theta_i^*, \sigma)$ with $\sigma$ assigned after MAP estimation. Options 1–2 can be combined with 3.
+- **Training with the distributional approximation (option 3, learned during training)**: without priors — $\arg\max_\mu \log p(D|\theta^l, M)$ with $\theta^l \sim \prod_i \mathcal{N}(\theta_i;\mu,\sigma)$ ($\sigma$ fixed to avoid trivial solutions); or with priors —
+
+$$\arg\max_{\mu,\sigma}\ \log p(D \mid \theta^l, M) - D_{KL}\!\left[\textstyle\prod_i \mathcal{N}(\theta_i;\mu,\sigma)\ \Big\|\ \prod_i \mathcal{N}(\theta_i;\mu_0,\sigma_0)\right], \quad \theta^l \sim \mathcal{N}(\mu,\sigma)$$
+
+— the objective corresponds to the **Evidence Lower Bound (ELBO / variational lower bound)** for $p(D|M)$ (variational Bayesian neural networks).
+
+### Modeling $p(y \mid x, \theta, M)$ (rather than approximating it)
+
+- Most neural networks are **deterministic** given parameters — no ambiguity in the output — so this term is something we *model*. The simple model $p(y|x,\theta,M) \triangleq \delta(y - f(x;\theta))$ suffices for deterministic prediction.
+- But it can be improved to reflect that **multiple $y$'s can correspond to the same $x$** (super-resolution: many high-res images per low-res input; segmentation: multiple experts draw different maps). In the factorization this is the **only term modeling the dependency of $y$ on $x$** — the best place to integrate one-to-many relations.
+- **Approach I — predict distribution parameters** (heteroscedastic modeling):
+
+$$p(y \mid x, \theta, M) \triangleq \mathcal{N}(y;\ f(x;\theta),\ g(x;\theta))$$
+
+with $f$ predicting the mean and $g$ the standard deviation (distribution chosen per application, e.g., Bernoulli for binary classification). Training maximizes $\log p(y|x,\theta,M)$; for the Gaussian case:
+
+$$\max_\theta\ \left[-\log g(x;\theta) - \frac{1}{2}\frac{(y - f(x;\theta))^2}{g(x;\theta)^2}\right]$$
+
+For image outputs: factorized per-pixel $p(y|x,\theta,M) \triangleq \prod_i \mathcal{N}(y_i; f_i(x;\theta), g_i(x;\theta))$. If statistical dependencies between output pixels must be modeled: **compound distributions with a lower-dimensional latent space** $p(y|x,\theta,M) \triangleq \int_z p(y|z,x)\, p(z|x)\, dz$, with $p(z|x)$ and $p(y|x,z)$ modeled by networks as in **variational autoencoders** [Kohl et al. 2018 — Probabilistic U-Net].
+
+- **Approach II — generate samples instead of a distribution** [Wang et al. 2018]: the model takes a **random input** $z$: $y^l = f(x, z^l; \theta)$, $z^l \sim p(z)$ — no explicit distribution. To make the samples sensible, train with a **distributional (adversarial) loss**:
+
+$$\min_\theta \max_\psi\ \sum_n \mathcal{L}(y_n, f(x_n;\theta)) + \lambda\left[\mathbb{E}_{y\sim p(y)}[\log D(y;\psi)] + \mathbb{E}_{y = f(x,z^l;\theta)}[\log(1 - D(y;\psi))]\right]$$
+
+### Evaluation — possibly the most challenging component
+
+How do we know the model's distribution truly captures uncertainty? We cannot access the true posterior. **Two main methods**:
+
+1. **Comparison with observed samples** — when a data set has **multiple labels per image**: compute distributional distances between generated and observed samples, e.g., **Maximum Mean Discrepancy (MMD)** [Gretton et al. 2012] and **Generalized Energy Distance (GED)** [Kohl et al. 2018; Baumgartner et al. 2019]:
+
+$$D^2_{GED} = 2\,\mathbb{E}[d(s, y)] - \mathbb{E}[d(s, s')] - \mathbb{E}[d(y, y')]$$
+
+where $d(\cdot,\cdot)$ is DSC or IoU-based distance, $s, s'$ model samples, $y, y'$ real segmentations from the data set.
+
+2. **Calibration error** — when multiple samples are not available (the most general case): measure whether the assigned uncertainty **reflects error** — correlation between uncertainty and test error. **Expected Calibration Error (ECE)**:
+
+$$\mathrm{ECE}(D;\theta) \triangleq \mathbb{E}_r\big[\,|\mathbb{E}_{c|r}[c] - r|\,\big]$$
+
+where $r$ is the confidence the model assigns and $c$ the indicator of prediction correctness (average gap between confidence and accuracy).
+
+## 15.3 Examples from the literature
+
+- **Uncertainty over $\theta$ and $y\mid x$** [Gal & Ghahramani 2016 — *Dropout as a Bayesian Approximation*; Tanno et al. 2017, 2020]: combine (1) **variational drop-out** to sample $\theta$ given $D, M$ (approximating $p(\theta|D,M)$) and (2) a **pixel-wise distribution** to model $p(y|x,\theta,M)$ — applied to neuroimage enhancement / dMRI super-resolution.
+- **Segmentation** [Kohl et al. 2018 — *Probabilistic U-Net*; Baumgartner et al. 2019 — *PHiSeg*]: probabilistic **latent-space** models for $p(y|x,\theta,M)$, trained on data sets containing **multiple annotations per image**.
+- **Sampling for inverse problems** [Adler & Öktem 2018 — *Deep Bayesian Inversion*]: a **sampler** modeling $p(y|x,\theta,M)$ that uses an adversarial loss to ensure outputs are realistic *and* satisfy the data.
+
+## 15.4 Unintuitive behavior in high dimensions
+
+*(Joint work with Tareen Dawood, Roberto Cagnotti, Kilian Zepf and Aasa Feragen — [Cagnotti 2023], [Zepf et al. 2026].)*
+
+- Setting: **deep-decoder denoising** with noisy $x$ and noise-free estimate $\hat y = f(z|\theta^*)$, $\theta^* = \arg\max_\theta \|x - f(z|\theta)\|_2^2$ *(as printed; i.e., fitting an untrained network to the noisy image)*, $z \sim \mathcal{N}(0,\Sigma)$.
+- **Sampling model parameters ("epistemic uncertainty")**: instead of a point estimate, formulate $p(\theta \mid x, z, M) \propto p(x \mid \theta, z, M)\, p(\theta|M)$ with $p(x|\theta,z,M) = \mathcal{N}(f(z|\theta), I)$ and sample [cf. Šidák 1967].
+- **Typical sets**: for an isotropic unit Gaussian in $d$ dimensions, the expected distance of a sample from the mean is $\mathbb{E}[|x - \mu|] = \sqrt{d}$ [Blum, Hopcroft, Kannan — *Foundations of Data Science*]. As dimension increases, **samples move away from the mode** of the distribution.
+- Consequence: posterior **samples move away from high-likelihood areas** — and since $p(D|\theta,M)$ *is* the task-specific loss being minimized, sampled parameters can perform poorly on the task. **Bounded sampling** [Zepf et al. 2026 — *Mixtures of Locally Bounded Langevin Dynamics for Bayesian Model Averaging*, TMLR 2026] may help but does not provide a complete solution.
+
+## 15.5 References cited on the slides
+
+Kermany et al. 2018 (Cell); Laves et al. 2019 (Current Directions in Biomedical Engineering); Tschandl et al. 2020 (Nature Medicine); Becker et al. 2019 (European Journal of Radiology); Carass et al. 2017 (NeuroImage); Efron & Tibshirani 1993 (*An Introduction to the Bootstrap*); Akaike 1998; van der Linde 2003; Kohl et al. 2018 (NeurIPS, Probabilistic U-Net); Wang et al. 2018 (CVPR, conditional GANs); Gretton et al. 2012 (JMLR, kernel two-sample test); Baumgartner et al. 2019 (MICCAI, PHiSeg); Tanno et al. 2017 (MICCAI), 2020 (NeuroImage); Gal & Ghahramani 2016 (ICML); Adler & Öktem 2018 (arXiv); Zepf, Dawood, Feragen, Konukoglu 2026 (TMLR); Cagnotti 2023 (ETH student paper); Šidák 1967 (JASA); Blum, Hopcroft, Kannan 2020 (*Foundations of Data Science*, CUP).
+
+---
+# 16. Lecture 13a — Domain Adaptation (`lecture13_domain_adaptation.pdf`, 101 slides / 42 numbered pages)
+
+*Ender Konukoglu, ETH Zürich, May 19, 2026*
+
+**Problem with generalization**: models trained with one training set do not perform well on another data set with different — even slightly different — intensity characteristics. Outline: the problem · domain adaptation approaches — naive approach, transfer learning, unsupervised domain adaptation, extreme data augmentation, unsupervised source-free domain adaptation.
+
+## 16.1 The problem
+
+- Focus on **segmentation** (pixel-wise class assignment from intensities): deep learning is clearly the state of the art across anatomies, pathologies, modalities; accuracies are **close to inter-rater variability** — e.g., pair-wise average DSC for whole-gland prostate segmentation in a study with 6 readers and 80 patient images was **0.74**.
+- **When the domain changes**: even *slight* differences between training and test data statistics can lead to **substantial performance degradation** — neural networks are **not robust against "domain shifts."**
+- Not specific to segmentation [images from McKinney et al., *Nature* 2020]: pertinent for restoration, synthesis, reconstruction, registration, …
+- **Finer taxonomy of dataset shift** [table from Castro et al., "Causality Matters in Medical Imaging", *Nature Communications* 2020]:
+
+| Type | Change | Examples of differences |
+|---|---|---|
+| Population shift | $P_D(Z)$ | ages, sexes, diets, habits, ethnicities, genetics |
+| Annotation shift | $P_D(Y \mid X)$ | annotation policy, annotator experience |
+| Prevalence shift | $P_D(Y)$ | case–control balance, target selection |
+| Manifestation shift | $P_D(Z \mid Y)$ | anatomical manifestation of the target disease or trait |
+| Acquisition shift | $P_D(X \mid Z)$ | scanner, resolution, contrast, modality, protocol |
+
+- **Notation**: a **domain** = a distinct subset of samples showing similar variations (center, scanner, sequence, acquisition protocol). **Source domain** = subset used for training; **target domain** = subset on which the model is applied; both can consist of multiple subsets. Samples: $(x^{SD}, y^{SD})$, $(x^{TD}, y^{TD})$; datasets $D^{SD}$, $D^{TD}$.
+- **Domain shift** definition: if target domain ⊂ source domain → algorithms should generalize; if target domain ⊄ source domain → **domain shift** — training happened on samples different from those seen at inference.
+
+## 16.2 Naive solution — separate training per domain
+
+- Source domain: train with many labeled samples $\{(x_n^{SD}, y_n^{SD})\}$, $\min_\theta \mathcal{L}(D^{SD};\theta)$; infer with $y^{SD} \approx f(x^{SD}; \theta^*_{SD})$. Target domain: same with its own many labeled samples → $\theta^*_{TD}$.
+- **If enough labeled examples are present, this is the best-performing model.** But it requires a large labeled set **at every domain** where the algorithm is used — labeled samples are expensive: curation and labeling take a LOT of time.
+
+## 16.3 Transfer learning (fine-tuning)
+
+- Initial training on the source domain (many samples); **fine-tune** on the target domain with **very few** labeled samples:
+
+$$\min_\theta \mathcal{L}(D^{TD}; \theta), \qquad \theta^{(0)} = \theta^*_{SD}$$
+
+(training starts at the optimal source-domain parameters).
+
+- Requires only a few labeled target-domain samples — but still requires labeled samples at **each** target domain.
+- **Reducing the labeled-sample requirement further**:
+  - *Alternative I*: use **unlabeled** samples (as in the semi-supervised learning setting).
+  - *Alternative II*: **reduce the number of parameters trained during fine-tuning** (especially useful when unlabeled examples are unavailable):
+    - Fix most parameters and only train the layers between input $I$ and $L_1$ (the input adapter).
+    - Or change only the **batch-norm parameters**: $\mathrm{BN}(a_l) = \gamma \frac{a_l - \mu_l}{\sqrt{\sigma_l^2 + \epsilon}} + \beta$ — all other parameters stay the same.
+  - Demonstration: **fine-tuning with only 4 images** achieves good target-domain segmentation.
+
+## 16.4 Unsupervised domain adaptation (UDA)
+
+- *Can we train models without any labels at the target domain?* Use **many unlabeled target samples** $\{(x_n^{TD}, \cdot)\}$ together with the labeled source set:
+
+$$\min_\theta\ \mathcal{L}(D^{SD};\theta) + \mathcal{L}_{adv}(D^{TD}, D^{SD}; \theta)$$
+
+- The **adversarial loss** ensures **similar features are extracted from source and target samples** — the network becomes *blind to differences between domains*. With a discriminator $D(\cdot;\psi)$ applied to intermediate features $l(x) = [L_2(x), L_3(x), L_4(x)]$:
+
+$$\min_\theta \sum_n \mathcal{L}(y_n^{SD}, f(x_n^{SD};\theta)) + \max_\psi\ \mathbb{E}_{x\sim p_{SD}}[\log D(l(x);\psi)] - \mathbb{E}_{x\sim p_{TD}}[1 - \log D(l(x);\psi)]$$
+
+- Interpretation: **supervised loss** = task-specific loss on labeled source samples; **adversarial loss** = distributional loss measuring distance between feature distributions of the two domains. Applicable to any architecture (only a simple one was shown).
+- Properties: needs **no labeled target images**; but requires a **new training for each target domain**, and source-domain images must be transported to each target domain.
+
+### Common aspects of the first three approaches
+
+Naive, transfer learning, and UDA **all require training at the target domain**; training requires some (labeled) data. Transfer learning reduces the number of labeled target samples; UDA removes labeled target samples entirely — at the price of using **source samples in every target training**. The next two approaches do **no labeled training at the target domain at all**.
+
+## 16.5 Domain generalization via (extreme) data augmentation
+
+- **Domain generalization framework**: data augmentation and test-time adaptation methods **train only in the source domain**, require no target-domain samples for training, and at most **adapt** at the target domain.
+- **Data augmentation** (well established): transformations of data samples serve as new samples — very effective against lack of data. Geometric transformations (affine, elastic); intensity transformations (blur, added noise, gamma correction $I^\gamma$).
+- For **domain generalization**: train on $D^{SD} \cup \hat D^{SD}$ (original + augmented); at the target domain there is **no training at all** — inference uses $y^{TD} \approx f(x^{TD}; \theta^*_{SD})$ directly.
+- **Hypothesis: augmentation can mimic new domains.** **Stacked transformations**:
+
+$$(\hat x_s, \hat y_s) = \tau^n_{p_n, m_n}(\tau^{n-1}_{p_{n-1}, m_{n-1}}(\cdots \tau^1_{p_1, m_1}((x_s, y_s))))$$
+
+each transformation $\tau^n$ applied with probability $p_n$ and magnitude $m_n$. Categories:
+
+  - *Image quality*: sharpness, blurriness, noise level
+  - *Image appearance*: brightness (intensity shifts), contrast (gamma correction)
+  - *Spatial configuration*: rotation, scaling, deformations
+  - The effect of each transformation on the **labels** is well known: spatial transformations transform labels too; appearance changes do not affect labels.
+- Demonstrated on prostate segmentation in MRI and left-ventricle segmentation in ultrasound.
+- **Pictorial view**: augmentation expands the source image set $X_{SD}$ into $\tilde X_{SD}$, *hoping* the expanded set overlaps with the target set $X_{TD}$. A very strong method — but performance improvement **may be limited to the variations covered by the augmentation strategy**.
+
+## 16.6 Unsupervised source-free domain adaptation — test-time adaptation (TTA)
+
+- Source domain: train (with augmentation) as before. Target domain: **no training samples at all**; at inference, adapt a subset of parameters $\phi$ by minimizing a label-free cost on the test sample(s), then predict:
+
+$$\min_\phi\ \mathcal{L}\big(f(x^{TD}; \theta^*_{SD}, \phi)\big) \quad\text{then}\quad y^{TD} \approx f(x^{TD}; \theta^*_{SD}, \phi^*)$$
+
+**Two main questions**: (1) *what cost function to optimize?* (2) *which parameters $\phi$ to train/fine-tune?*
+
+### Question 1 — the cost function (three families)
+
+1. **Entropy of the prediction** [Wang et al., ICLR 2021 — "Tent"] (classification): $H(f(x;\theta)) = -\sum_k f_k(x;\theta)\log f_k(x;\theta)$.
+   - Assumption: pushing prediction confidence higher leads to good domain generalization.
+   - Pros: simple, no prior information, applicable to different tasks. Cons: a **strong assumption** — holds only if the prediction is not far off and if you adapt to **many test samples together**.
+2. **Auto-encoder loss on input, output, and intermediate features** [He et al., MICCAI 2020]:
+   - An auto-encoder maps an image to itself, $x \approx D(E(x))$; it reconstructs well **only for samples from the domain it was trained on**.
+   - AEs ($AE_I, AE_1, AE_2, AE_3, AE_O$ attached to $I, L_1\dots, O$) are trained on the **source** domain; at test time the network parameters are adapted so that inputs/features/outputs are reconstructed accurately → they have been converted to *source-domain-like* representations → the network predicts accurately.
+   - Pros: generally applicable, a strong prior model. Cons: input and intermediate features **can be prone to domain shifts themselves**.
+3. **Segmentation prior evaluated at the output** (plausibility of the result) [Karani et al., *Medical Image Analysis* 2021]:
+   - A **denoising auto-encoder (DAE)** maps a noisy version of an image to itself, $x \approx D(E(\tilde x))$; trained **on segmentation maps** it learns a **prior over plausible segmentations**.
+   - Adaptation objective: change network parameters so the network's output is accurately reconstructed by the source-trained DAE — $\mathcal{L}\big(f(x;\theta,\phi),\ H_{\psi^*_{SD}}(f(x;\theta,\phi))\big)$ — converting outputs to source-like (plausible) segmentations.
+   - Pros: a strong prior gives accurate results; **segmentation maps are unaffected by intensity changes**, so the prior itself is immune to this kind of domain shift. Cons: **specific to the segmentation task**.
+
+### Question 2 — which parameters to adapt
+
+- **All parameters** ($\phi = \theta$): maximally flexible — but too much flexibility can produce outputs that perfectly satisfy the cost while **no longer being related to the input**.
+- **A subset** ($\phi \subset \theta$): less flexible, avoiding that issue; also desirable because the initial parameters were obtained from large curated data sets — costly in time, data, and money — and shouldn't be changed if not needed.
+- **Batch-norm parameters only**: very simple, very few parameters; but batch-norm parameters in **deeper layers** can affect results a lot, and it is unclear whether they address intensity-characteristic changes.
+- **A shallow "adaptation" module prepended to the network**: $f(x; \theta, \phi) = f(N(x;\phi); \theta)$ — the shallow module is not too flexible and pre-trained parameters stay untouched; cost: the network becomes slightly bigger.
+- Final slides: **a complete TTA model** (combining the pieces) and **TTA in action** on example images.
+
+---
+# 17. Lecture 13b — Learning from Unlabeled Examples (`lecture13_semi_supervised.pdf`, 101 slides / 44 numbered pages)
+
+*Ender Konukoglu, ETH Zürich, May 19, 2026*
+
+**Framing**: a large number of labeled examples is crucial for deep learning, but in medical applications large data sets are not common — *how can we learn accurate deep learning models from unlabeled examples?* Outline: the problem · noise-to-noise · self-training · teacher–student models · auxiliary losses · self-supervised learning.
+
+## 17.1 The problem
+
+- Supervised deep learning owes its success to **large labeled data sets** — the best-known demonstrations use over **1M labeled examples**; this applies to images as well as text — the current success of language models comes from using "(seemingly) the entire internet!"
+- **Generating very-large-scale labeled data sets is not feasible for many medical applications**, for several reasons (built up over successive slides):
+  - Manual annotations are **very costly** — segmentations are mostly done manually by experts (people who know what they are segmenting).
+  - The nature of the problem may not permit large labeled sets — **ground-truth images may be very costly to acquire** (e.g., in the low-dose CT example, image pairs may be obtainable from some people but not all).
+  - The ground truth may be **impossible to acquire at all** — more often in biological applications, the noisy images are the only ones obtainable, yet noise must be removed.
+  - Common thread: **labeling is the problem — expensive, not feasible, or impossible.** Models that learn from few labeled examples would be very valuable.
+- **Problem setup**: *few labeled examples* (getting a few labeled images is often possible; unpaired data sets can help for some problems, e.g., CT synthesis from MRI; more accuracy with fewer labels is always better) + *many unlabeled examples* (images without labels — e.g., images without ground-truth segmentations; often available in large numbers, though for some problems even unlabeled data is scarce).
+
+## 17.2 Noise2Noise — learning to denoise without clean targets
+
+- Can a restoration model be learned **only from corrupted samples**? Usual training uses clean images: $\arg\min_\theta \sum_n \mathcal{L}(y_n, f(x_n;\theta))$.
+- Suppose instead of a clean image we have a **distribution of noisy images** $p(\hat y)$ for the same underlying sample. Minimizing $\arg\min_{f(x;\theta)} \mathbb{E}_{\hat y}[\|f(x;\theta) - \hat y\|^2]$ yields
+
+$$f(x;\theta) = \mathbb{E}_{\hat y}[\hat y]$$
+
+(the L2-optimal prediction is the *mean* of the noisy targets).
+
+- Extending over samples $x$: $\arg\min_\theta \mathbb{E}_x\{\mathbb{E}_{\hat y | x}[\|\hat y - f(x;\theta)\|^2]\}$ — this minimizes the distance between the network output and *noisy* samples of $p(\hat y \mid x)$, never using a clean image. **If $\mathbb{E}[\hat y \mid x] = y$** (the average of noisy samples is the clean sample), then, given infinite data, this objective and the supervised objective $\arg\min_\theta \mathbb{E}_{x,y}[\|y - f(x;\theta)\|^2]$ **give the same solution**.
+- **Practical cost function**: replace $\arg\min_\theta \sum_n \|y_n - f(x_n;\theta)\|^2$ with
+
+$$\arg\min_\theta \sum_n \sum_m \|y_n^m - f(x_n;\theta)\|^2$$
+
+where $y_n^m$ are noisy versions of the ideal $y_n$ (train noisy→noisy).
+
+- Application: **Noise2Noise for restoration of CT and MRI**; further variations and improvements exist (one proposed in the referenced article).
+
+## 17.3 Self-training (pseudo-labeling)
+
+A simple way to use unlabeled images — iterative algorithm:
+
+1. Train the network with labeled examples: $\theta_0^* = \arg\min_\theta \sum_n \mathcal{L}(y_n, f(x_n;\theta))$.
+2. Predict **pseudo-labels** for unlabeled images at iteration $i$: $\hat y_m = f(x_m; \theta_i^*)$.
+3. Retrain with labeled + pseudo-labeled data: $\theta_{i+1}^* = \arg\min_\theta \sum_n \mathcal{L}(y_n, f(x_n;\theta)) + \lambda \sum_m \mathcal{L}(\hat y_m, f(x_m;\theta))$ ($\lambda$ a weighting factor).
+4. Iterate steps 2–3.
+
+- **Why should it work? Entropy minimization**: MNIST digit classification t-SNE plots of intermediate representations show that self-training leads to **compact class representations with low-density regions between classes**.
+- **Caveats**: works well **if the initial model's estimates are not bad** (entropy minimization assumes mostly correct class assignments); if the initial estimates are poor, self-training **quickly diverges** [Chapelle, Schölkopf, Zien, *Semi-Supervised Learning*, 2009]. Additional regularization of the pseudo-labels can prevent divergence — but even then the model can diverge quite often.
+- **Self-training for cardiac MRI segmentation** — one modification: **post-process pseudo-labels** before retraining: $\hat y_m = f(x_m;\theta_i^*)$, $\tilde y = g(\hat y_m)$, then retrain on $\tilde y_m$. In the referenced work $g(\cdot)$ was a **Conditional Random Field (CRF)** optimization — "but even a median filter would work."
+
+## 17.4 Teacher–student models
+
+- A new type of regularization: **two interacting networks** generate pseudo-labels, one evolving more slowly than the other [Tarvainen & Valpola, NeurIPS 2017].
+- Components: **student** $f_s(x;\theta)$; **teacher** $f_t(x;\phi)$; supervised cost on labeled examples $\mathcal{L}(y, f_s(x;\theta))$; **consistency loss** $\mathcal{L}_c(f_s(x;\theta), f_t(x;\phi))$ — applicable to **both labeled and unlabeled** examples. Total student loss:
+
+$$\sum_n \mathcal{L}(y_n, f_s(x_n;\theta)) + \lambda\left(\sum_n \mathcal{L}_c(f_s(x_n;\theta), f_t(x_n;\phi)) + \sum_m \mathcal{L}_c(f_s(x_m;\theta), f_t(x_m;\phi))\right)$$
+
+($n$ = labeled, $m$ = unlabeled samples).
+
+- **Mean teacher**: teacher and student are trained alternately; many teacher-update rules are possible (e.g., $\phi^i = \theta^i$); in the best-known **mean-teacher** model the teacher is the **exponential moving average** of the student:
+  1. For the given teacher, train the student (minimize the total loss above with $\phi^{i-1}$ fixed).
+  2. Update the teacher: $\phi^i = \alpha \phi^{i-1} + (1-\alpha)\, \theta^i$.
+  3. Iterate.
+- Results: fairly good segmentation models in medical imaging — e.g., brain-lesion segmentation with **only 20 labeled and 196 unlabeled samples**.
+
+## 17.5 Auxiliary losses
+
+The teacher–student total loss can be viewed as **supervised loss + auxiliary loss**. This form generalizes: construct auxiliary losses believed useful for the task. Two classes:
+
+- **Semi-supervised type** — defined over unlabeled images *during task-specific optimization*.
+- **Self-supervised type** — defined over unlabeled images *independent of the task*.
+
+### Consistency under transformations (semi-supervised auxiliary loss)
+
+- In pixel-wise prediction, spatial transformations of the input should be matched at the output: if $\phi$ is a spatial transformation (affine or non-linear deformation), $x \Leftrightarrow y \Rightarrow \phi \circ x \Leftrightarrow \phi \circ y$ — the principle underlying data augmentation.
+- For each image sample two transformations $\phi_1, \phi_2$ are drawn, giving $\phi_1 \circ x$, $\phi_2 \circ x$, $f(\phi_1 \circ x;\theta)$, $f(\phi_2 \circ x;\theta)$; **consistency loss** (requires no labels):
+
+$$\mathcal{L}_{cons}(x, \phi_1, \phi_2; \theta) = \mathcal{L}\big(\phi_2 \circ \phi_1^{-1} \circ f(\phi_1 \circ x;\theta),\ f(\phi_2 \circ x;\theta)\big)$$
+
+- Final semi-supervised cost (second sum over labeled **and** unlabeled examples):
+
+$$\sum_n \mathcal{L}(y_n, f(x_n;\theta)) + \sum_m \mathbb{E}_{\phi_1,\phi_2}\left[\mathcal{L}\big(\phi_2 \circ \phi_1^{-1} \circ f(\phi_1 \circ x_m;\theta),\ f(\phi_2 \circ x_m;\theta)\big)\right]$$
+
+- Architecture diagram + results: **chest radiograph segmentation** with 100 total samples, using different labeled portions (5, 10, …, 100) with the rest unlabeled.
+
+## 17.6 Self-supervised learning
+
+- **Main principle**: train a network on a **pre-text task that requires only images**; the trained network is then suitable for **fine-tuning with very few labeled examples** on other tasks. The crucial problem: identify a pre-text task that yields useful parameters. [Example images from Gidaris et al., ICLR 2018 (rotation prediction) and Pathak et al., CVPR 2016 (context encoders/in-painting).] Underlying assumption: such tasks are good for learning "generalizable" parameters.
+- Example: **"Rubik's cube" pre-text task for medical image analysis** (solving shuffled 3D sub-cubes).
+- These tasks are **hand-crafted** — assumed good, empirically shown to work to some extent; a **principled task** would be preferable.
+
+### Contrastive learning
+
+- Borrow the idea of forcing compact representations with **surrogate labels** [Hadsell et al., CVPR 2006; Chen et al., ICML 2020 — SimCLR]: **random transformations of the same image are "close"** and should be close in representation space.
+- **Contrastive (InfoNCE-style) loss**:
+
+$$\mathcal{L}(x, \{\hat x\}, \phi_1, \phi_2) = -\log \frac{e^{\rho(h(\phi_1 \circ x),\, h(\phi_2 \circ x))/\tau}}{e^{\rho(h(\phi_1 \circ x),\, h(\phi_2 \circ x))/\tau} + \sum_n e^{\rho(h(\phi_1 \circ x),\, h(\hat x_n))/\tau}}$$
+
+  - Similarity via **cosine similarity** $\rho(a,b) = a^T b / (\|a\|\|b\|)$; temperature $\tau$.
+  - Transformations $\phi$ are random and **not restricted to geometric** ones — they include intensity changes.
+  - $\{\hat x\}$ = the **"negative set"** — samples that should *not* share a representation with $x$.
+  - Minimizing the loss: the numerator **maximizes** similarity between views of the same content ($\phi_1 \circ x$, $\phi_2 \circ x$); the denominator **minimizes** similarity to different-content samples.
+- **Global contrastive learning**: train an encoder ($x \to L_1 \dots L_5 \to h(x)$) with this loss — image-level representations at $L_5$ become compact w.r.t. the surrogate labels/closeness notion.
+- **Local contrastive loss**: additionally force **local** representations to be compact — particularly useful for pixel-wise predictions. Train a **decoder** attached to the fixed encoder, applying the contrastive loss per patch $P_i[\cdot]$ (the $i$-th patch of the feature/image):
+
+$$\mathcal{L} = -\sum_i \log \frac{e^{\rho(P_i[h(\phi_1\circ x)],\, P_i[h(\phi_2 \circ x)])/\tau}}{e^{\rho(P_i[h(\phi_1\circ x)],\, P_i[h(\phi_2\circ x)])/\tau} + \sum_n e^{\rho(P_i[h(\phi_1\circ x)],\, P_i[h(\hat x_n)])/\tau}}$$
+
+  - **Attention with transformations**: they must not change patch correspondences — either restrict to correspondence-preserving transformations, or **undo them** when computing correspondences: compare $P_i[\phi_1^{-1} \circ h(\phi_1 \circ x)]$ with $P_i[\phi_2^{-1} \circ h(\phi_2 \circ x)]$.
+- **In action for MRI segmentation**: results from [Chaitanya et al., NeurIPS 2020] — global + local contrastive pre-training improves segmentation with few labels.
+
+### Masked autoencoders (MAE)
+
+- Akin to **in-painting**: reconstruct occluded parts of images — the model learns to predict missing information.
+- Structure: a **larger encoder** processes the visible parts; a **smaller decoder** reconstructs the occluded parts. Parts of the image are **masked randomly** — the randomness encourages robust, generalizable representations. The trained encoder serves as an effective **backbone for downstream tasks**.
+- **MAE in action** (courtesy of [Buess et al., MIDL 2024]): preliminary results show MAEs can be effective in learning generalizable representations; experiments continue.
+
+### Foundation models
+
+- **Self-supervised training at a very large scale**; **transformer-based architectures**; trained with **masked auto-encoding** (similar to in-painting) and **variations of contrastive learning**.
+
+**Final message**: *"This is an active area of research."*
+
+---
+# 18. Lecture 14 — XAI in Medical Image Analysis (`Lecture_Interpretability_Reyes_ETHZ_2026.pdf`, 88 slides)
+
+*Mauricio Reyes, PhD*
+
+## 18.1 Definitions and motivation
+
+- Opening context: DARPA's **Explainable AI (XAI)** program framing (today's black-box learners vs. XAI's "explainable model + explanation interface").
+- **What is interpretability?** An interpretable ML algorithm is one where **the link between the features used by the model and the prediction itself can be understood by a human**.
+- Another definition [Barocas, Friedler, Hardt, Kroll, Venkatasubramanian, Wallach — FAT-ML workshop series 2018]: **produce explanations without sacrificing accuracy** — simpler is easier to understand, but oversimplified models are typically uninteresting from an accuracy point of view.
+- **Principle of "least effort" / shortcut learning**: what a model learns is shaped by its **inductive bias** — model architecture, loss, optimization, training data. Example shown: chest X-ray classifier attending to **laterality markers** — attention outside the region of interest.
+- **Explaining DL decisions via attention maps** [Ribeiro et al. 2017; Zech et al. 2018]: a pneumonia classifier's saliency revealed the network **learned to detect the clinical site** (hospital-specific tokens/markers) rather than pathology.
+- AI can predict **race from medical images** with high performance across multiple modalities; detection is not due to proxies or imaging-related covariates; the pattern persists across all anatomical regions [referencing the "AI recognition of patient race" work] — a strong reason to audit what models learn.
+
+## 18.2 Case study — bias detection with interpretability
+
+Automated classification of **low- vs. high-grade gliomas (LGG vs. HGG)** from T1c and T2 MRI [Pereira et al., MICCAI-iMIMIC 2018; Reyes et al., *Radiology: Artificial Intelligence* 2021]:
+
+- Q: *Are there biases stemming from the data-preparation process?* A: **Yes — bias of learned patterns detected via interpretability** (saliency maps before/after correction shown).
+- Key experiment: with intensity **normalization computed over the brain area only**, AUC = **0.8857**; with normalization over the **whole image**, AUC = **0.9841** — suspiciously better, and saliency shows the model attending outside the brain → the model likely entered **"shortcut learning" mode** (exploiting preprocessing artifacts).
+- **Key finding: interpretability enhances data preparation *and* AI performance.**
+
+## 18.3 Taxonomy of XAI methods
+
+- **By access to the model**:
+  - **Black-box operating methods** — no access to model internals needed; also called **model-agnostic**.
+  - **White-box methods** — require access to internals; **gradient-based** methods are one example.
+- **By output**:
+  - **Visualization / saliency maps** — pixel-wise values reflecting importance to the model's prediction.
+  - **Concepts** — a summary statement or keyword.
+  - **Feature importance** — expressing the importance of features (e.g., high model weights).
+- (Recap slides: typical CNN structure — convolution, pooling/subsampling, fully connected layers.)
+
+## 18.4 Method gallery
+
+1. **LIME — Local Interpretable Model-agnostic Explanations** [Ribeiro et al., "Why Should I Trust You?", 2016/2017]: explain any classifier $f$ locally by fitting a **potentially interpretable model** $g$ (e.g., sparse linear model over superpixels) that approximates $f$ in a neighborhood of the input, weighted by a **proximity measure**, plus a **complexity measure** penalty on $g$ (objective: fidelity $g \approx f$ + simplicity).
+2. **Class-prototype maximization** [Simonyan et al. 2013 — *Deep Inside Convolutional Networks*]: a **global** explanation technique — find the input pattern maximizing a class activation (gradient ascent on the input); the result is **not necessarily a real image**. Also introduced gradient-based **saliency maps**.
+3. **Synthesizing preferred inputs via deep generator networks** [Nguyen et al. 2016]: regularize activation maximization with a **generative prior** — pipeline: forward pass, detect maximum activation, backward pass into the feature space (e.g., FC6) of a generator; prior generator and DNN can be trained separately; yields much more natural preferred inputs. [Slide source: Wojciech Samek.]
+4. **Grad-CAM** [Selvaraju et al. 2017]: **visual explanations via gradient-based localization** — a **generalization of CAM** [Zhou et al., CVPR 2016] applicable to **any CNN** (CAM requires the conv feature maps → global average pooling → softmax structure). Motivation: good visualization is **class-specific and detailed**. Computation: a single forward and (partial) backward pass; **neuron importance weights** $\alpha_k^c$ = global-average-pooled gradients $\partial y^c/\partial A^k$ of the class score $y^c$ (before softmax) w.r.t. feature map $A^k$; heatmap = ReLU of the weighted sum of feature maps. Also shown: robustness analysis on **adversarial examples** where VGG was "fooled."
+5. **Meaningful perturbation** [Fong & Vedaldi 2017/2018 — *Interpretable Explanations of Black Boxes by Meaningful Perturbation*]: motivation — gradient-based saliency is not specific enough. Key idea: find the **right perturbation** (a type of **information deletion** — blur/noise/masking) and study its effect on $f(x)$: optimize an **"information-deletion" mask** that minimally covers the image while maximally dropping the class score (with a term enforcing minimal mask size). The meaning of the explanation depends on the meaning of the changes applied to the input; caveat: can lead to **unnatural perturbations** → adversarial-like artifacts against explanations.
+6. **TCAV — Testing with Concept Activation Vectors** [Kim et al. 2017]: concept-based, human-friendly explanations. Define a concept $C$ by example images; learn a **concept activation vector** (normal to a linear classifier separating concept activations from random ones in layer $l$); **conceptual sensitivity** of class $k$ to concept $C$ = directional derivative of the class-$k$ logit at layer $l$ along the CAV; the **TCAV score** = fraction of class-$k$ inputs whose layer-$l$ activation was **positively influenced** by concept $C$. TCAV **facilitates spotting dataset biases**. [Image source: Been Kim.]
+
+## 18.5 Shortcut learning, alignment, and fairness
+
+- *What is AI learning — and what if it differs from human reasoning/knowledge?* Depending on the case this is a **shortcut**, a **bias**, or **knowledge discovery**.
+- **"Right for the Wrong Reasons: Shortcut Learning as a Barrier to Clinical Deployment"** [Baniecki et al. 2024]: illustrates **human–AI alignment vs. misalignment** of attention with clinically meaningful regions.
+- **Reliable clinical AI: fair and trustworthy — "Primum non nocere" (first do no harm)**: example of a **fairness gap** — AUC differences between male and female sub-groups (AUC range ≈ 81–84%, fairness-gap axis ≈ 2.2–3.6%); goal: close the gap. Achieving this needs the right **inductive bias** — a **balance between guidance and pattern discovery** ("Alignment").
+
+### XAI-based inductive bias — SIBNet and hybrids
+
+- Chest X-ray multi-label classification (classes: **atelectasis, pleural effusion, edema, cardiomegaly, consolidation**) with **class-specific attention maps** [Luo et al., MICCAI 2025 shown alongside].
+- **SIBNet — Saliency Inductive Bias** [Mahapatra et al., *Medical Image Analysis* 2022]: use saliency as an inductive bias during training. Setup: five-fold validation, five classes, DenseNet-121 backbone. AUC comparison (~0.84–0.96 axis): SIBNet **outperforms** the DenseNet-121 CE baseline, Pham et al. 2020 (top-1 CheXpert challenge entry), Woo et al. 2018 (Convolutional Block Attention — channel & spatial attention), and Hu et al. 2018 (Squeeze-and-Excitation — channel attention). Interpreted as **indirect human–AI alignment**.
+- **Combining human–AI alignment and XAI-based inductive bias** [Shu et al., MICCAI-iMIMIC 2025]: alignment guided by a **VLM (vision-language model)**; F1 progression reported: baseline **67.8** → hybrid variants **68.2** → **69.4**, compared against GAIN [Li et al., CVPR 2018 — human-AI guidance] and KAD [Zhang et al., *Nature Communications* 2023 — human-based knowledge-graph guidance].
+
+## 18.6 Saliency as a model fingerprint; XAI-boosted active learning
+
+- **Saliency maps evolve during training** (snapshots at 10/20/40/60/90% of training, uncertainty + saliency): **key message — saliency maps can be seen/used as a fingerprint of the model's behavior to inputs.**
+- **GESTALT — Graph Node-Based Interpretability Guided Sample Selection**: interpretability-guided **active learning**. Pipeline: pre-trained classifier → saliency-map generator over a pool of samples → build a **class-specific graph** of saliency maps → graph-aggregation variants (1) GESTALT-Node, (2) GESTALT-Edge-Weight, (3) GESTALT-Weighted-Node → rank samples → top-ranked selection → update classifier. Guiding intuition: **"a sample is informative if the model struggles with it"** (easy samples have clean, focused saliency; hard/informative ones show the model struggling — "I can learn from it!"), optionally combined with **GenAI**-generated samples.
+- **XAI-boosted active learning** results [Shu et al., MICCAI-iMIMIC 2024; Mahapatra et al., *IEEE TMI* 2022; *MedIA* 2024; *MedIA* 2024b]: AUC vs. percentage of training samples (0–100%) — **GANDALF** (Graph-based transformer and Data Augmentation Active Learning) reaches near-fully-supervised AUC with a fraction of the labels, outperforming random selection and uncertainty-estimation-based selection.
+
+## 18.7 Wrap-up
+
+- Interpretability of AI systems is propelled by new findings from the DL community to **safely translate the technology to (medical) applications**.
+- The goal of interpretability is to have **enough information for the task at hand** — in medicine, **patient safety is first**.
+- There are several types of XAI methods (taxonomy above).
+- **Current challenges**: XAI needs to be **multimodal and longitudinal** to match clinical workflows.
+- **XAI in the era of foundation models: a bigger black box?**
+
+## 18.8 Bibliography (as listed on the slides, condensed)
+
+Adadi & Berrada 2018 (IEEE Access XAI survey); Adebayo et al. 2018 (*Sanity Checks for Saliency Maps*); Barocas et al. 2018 (FAT-ML); Caruana et al. 2015 (KDD, intelligible models for healthcare); Datta, Sen & Zick 2016 (IEEE S&P, quantitative input influence); Doshi-Velez & Kim 2017 (*Towards a Rigorous Science of Interpretable ML*); Eaton-Rosen et al. 2018 (biomarker uncertainty); Gale et al. 2018 (radiologist-quality reports); Gallego-Ortiz & Martel 2016 (rules from tree ensembles, breast MRI); Gillies, Kinahan & Hricak 2016 (Radiomics, *Radiology*); Gilpin et al. 2019 (*Explaining Explanations*); Goldstein et al. 2015 (ICE plots, JCGS); Goodman & Flaxman 2017 (EU "right to explanation", AI Magazine); Gunning 2017 (DARPA XAI); Guo et al. 2017 (ICML, calibration of modern NNs); He et al. 2019 (*Nature Medicine*, practical AI in medicine); Hosny et al. 2018 (*Nature Reviews Cancer*, AI in radiology); Jiang et al. 2018 (NeurIPS, to trust or not to trust a classifier); Jungo et al. 2018 (MIDL, uncertainty-driven sanity check for brain-tumor cavity segmentation); Kim et al. 2017 (TCAV); Kindermans et al. 2017 (PatternNet/PatternAttribution); Kleesiek et al. 2016 (*Scientific Reports*, virtual raters); Koh & Liang 2017 (influence functions); Lambin et al. 2017 (*Nature Reviews Clinical Oncology*, radiomics); Lapuschkin et al. 2019 (*Nature Communications*, "Clever Hans" predictors); Letham et al. 2015 (Bayesian rule lists, stroke prediction); Lipton 2016 (*The Mythos of Model Interpretability*); Litjens et al. 2017 (*MedIA*, survey of DL in medical image analysis); Mahapatra et al. 2018 (MICCAI, active learning with conditional GANs); Maier-Hein et al. 2016 (crowd-algorithm endoscopic annotation); Miller 2017 (explanation & social sciences); Moosavi-Dezfooli et al. 2016 (DeepFool, CVPR); Murdoch et al. 2019 (interpretable ML definitions/methods); Nair et al. 2018 (uncertainty for MS lesion detection); Nguyen, Yosinski & Clune 2015 (CVPR, DNNs easily fooled); Parikh, Obermeyer & Navathe 2019 (*Science*, regulation of predictive analytics); Pereira et al. 2018 (*MedIA*, interpretability of RBM–random-forest brain-lesion features); Poursabzi-Sangdeh et al. 2018 (manipulating/measuring interpretability); Ribeiro, Singh & Guestrin 2016 (LIME); Selvaraju et al. 2017 (Grad-CAM, ICCV); Simonyan, Vedaldi & Zisserman 2013 (saliency maps); Szegedy et al. 2013 (*Intriguing properties of neural networks*); Topol 2019 (*Nature Medicine*, high-performance medicine); Van Lent, Fisher & Mancuso 2004 (explainable AI for tactical behavior); Zech et al. 2018 (*PLOS Medicine*, variable generalization of pneumonia detection).
+
+---
+# 19. Example Exam with Answers (`Example_Exam_with_Answers.pdf`, 5 pages)
+
+*"Example Exam — Medical Image Analysis." All questions have equal weight. Below, each question is summarized with its given solution.*
+
+**Q1 — Field of view / voxel arithmetic for 2D acquisitions.** Background given: in 2D acquisitions, slices are acquired one after another in a predefined direction and stacked into a 3D volume (axial → slices in the transverse plane; coronal → slices in the coronal plane). Voxel sizes are given as *in-plane* (two values) and *through-plane* (one value — slice thickness).
+
+- (a) Axial acquisition, in-plane 0.6 × 0.6 mm² with 320 pixels in both directions, through-plane 3.5 mm with 150 slices. FOV in head-to-toe, left-to-right, anterior-to-posterior? → **525 × 192 × 192 mm³** (head-to-toe = 150 × 3.5; in-plane 320 × 0.6 = 192 each).
+- (b) Sagittal acquisition, in-plane 0.75 × 0.75 mm² with 256 pixels both directions, through-plane 2.5 mm with 210 slices. → **192 × 525 × 192 mm³** (left-to-right is the through-plane direction: 210 × 2.5 = 525; in-plane 256 × 0.75 = 192).
+- (c) Coronal acquisition, in-plane 1.0 × 1.0 mm² with a 192 mm FOV in both directions, through-plane 2.5 mm with 275 mm FOV. Number of pixels in head-to-toe / left-to-right / anterior-to-posterior? → **192 × 192 × 110 voxels** (anterior-to-posterior is through-plane: 275/2.5 = 110).
+
+**Q2 — MAP estimation for segmentation.** Given image $I$ and segmentation $S$, which maximization is the Maximum-A-Posteriori estimate: $\max_S \log p(I|S)$ or $\max_S \log[p(I|S)\,p(S)]$? → **The right one**, $\max_S \log[p(I|S)p(S)]$ (likelihood × prior).
+
+**Q3 — Probabilistic vs. energy-based formulations.** Match terms between $\max_S \log p(I|S) + \log p(S)$ and $\min_S D(I,S) - \lambda R(S)$ *(as printed)*. → **$\log p(I|S) \leftrightarrow D(I,S)$** (data term) and **$\log p(S) \leftrightarrow \lambda R(S)$** (regularization/prior).
+
+**Q4 — True/False on intensity normalization.**
+
+- (a) Nyul's intensity normalization is a non-linear method → **TRUE** (piecewise linear overall = non-linear).
+- (b) Min-max normalization using the 0 and 100 percentiles is particularly robust to intensity outliers → **FALSE** (0/100 percentiles are the min/max themselves — maximally outlier-sensitive).
+- (c) Matching mean and standard deviation of two images can remove intensity differences due to bias fields in MRI → **FALSE** (bias field is a spatially varying multiplicative effect; a global linear intensity map cannot remove it).
+- (d) With two pathologies, one hyper- and one hypo-intense, their effects would "cancel out" in min-max normalization with zero net adverse effect when matching to a healthy subject's profile → **FALSE** (both extremes distort min and max; they don't cancel).
+
+**Q5 — GMM parameter count.** For an image with $N$ pixels and a single intensity per pixel, how many parameters does a 4-component Gaussian mixture model have? → **4 × 3 = 12** (per component: mean, variance, and mixture weight).
+
+**Q6 — The two steps of EM (in words).** → The **Expectation step** computes posterior distributions given the model parameters — i.e., **soft class assignments**; the **Maximization step** optimizes the model parameters given the current soft class assignments.
+
+**Q7 — K-means vs. EM-GMM: which statement is inaccurate?** (A) EM-GMM uses probabilistic (soft) assignments while K-means uses deterministic (hard) ones — accurate; (B) EM-GMM estimates means *and* covariances while K-means only uses means — accurate; (C) EM-GMM does not share K-means' sensitivity to the user-set number of components — **inaccurate → answer C** (both are sensitive to the number of components); (D) initialization is important for both — accurate.
+
+**Q8 — Historical evolution of ML for medical images: which statement is incorrect?** (A) Univariate statistical models used hand-crafted, often difficult-to-extract features to identify statistical relations — correct; (B) multivariate predictive models (SVM, logistic regression) *reduced the feature-extraction effort* compared to univariate models by combining multiple hand-crafted features — **incorrect → answer B** (they still rely on the same hand-crafted features; combining more features does not reduce the extraction effort); (C) models with internal feature selection (random forests) could use lots of easy-to-extract primitive features — correct; (D) multi-layer neural networks automatically extract features from raw data at the cost of more parameters — correct.
+
+**Q9 — Which algorithm uses no context at all for a pixel's class assignment?** (Context illustration: a pixel is much easier to segment when surrounding image information is available.) (A) Expectation-Maximization with pixel-wise Gaussian mixture models; (B) atlas-based segmentation; (C) random forest; (D) CNNs. → **Answer A** (pixel-wise GMM-EM treats each pixel's intensity independently; atlases bring spatial context, and RF/CNN features use neighborhoods).
+
+**Q10 — Logistic regression vs. a single neuron with sigmoid activation?** Options: no bias term in logistic regression / one can model more complex relations than the other / only logistic regression is probabilistic / no difference. → **Answer E: there is no difference.**
+
+**Q11 — LeNet-5 True/False (convolutional part only).** Architecture given: input 32×32 grayscale; Conv1: 6 kernels 5×5, stride 1, no padding; Pool1: max-pool 2×2, stride 2; Conv2: 16 kernels 5×5, stride 1, no padding; Pool2: max-pool 2×2, stride 2; then FC layers 120 → 84 → 10 outputs (10 digits).
+
+- (a) The global receptive field of a neuron in Pool2 is 16×16 → **TRUE** (5 → 6 after pool → 14 after Conv2 → 16 after Pool2).
+- (b) The global stride of a neuron in Pool2 is 2×2 → **FALSE** (two stride-2 poolings compound to a global stride of 4×4).
+- (c) The total number of convolutional kernel weights (excluding biases) in Conv1+Pool1+Conv2+Pool2 is $5\cdot5\cdot1\cdot6 + 5\cdot5\cdot6\cdot16 = 2550$ → **TRUE** (pooling has no weights).
+- (d) With 64×64 inputs instead of 32×32, the number of convolutional kernel weights in (c) would be 4× larger → **FALSE** (convolutional weight counts are independent of image size — that's the point of weight sharing).
+
+**Q12 — Advantages of convolutional over fully connected layers (multiple answers).** (A) a single conv layer has a much larger receptive field — false (it's *smaller*/local); (B) conv layers can drastically reduce the number of parameters per layer — **correct**; (C) only conv layers allow advanced activations like ReLU — false; (D) multi-channel color images can only be processed convolutionally — false; (E) with conv layers the parameter count scales much better with increasing image size — **correct**. → **Answers: B and E.**
+
+---
+
+*End of notes — all 18 PDFs and the HTML demo in the repository have been processed.*
