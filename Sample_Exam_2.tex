@@ -1,0 +1,480 @@
+%% Sample Exam 2 -- Medical Image Analysis (ETH Zurich, 2026)
+%%
+%% Written in the style of Example_Exam_with_Answers.pdf.
+%%
+%% Compile the version WITH solutions:      pdflatex "\def\withanswers{}\input{Sample_Exam_2.tex}"
+%% Compile the blank version (no answers):  pdflatex Sample_Exam_2.tex
+%%
+\ifx\withanswers\undefined
+  \documentclass[11pt]{exam}
+\else
+  \documentclass[11pt,answers]{exam}
+\fi
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------- page style
+\pagestyle{foot}
+\firstpageheader{}{}{}
+\firstpagefooter{}{}{}
+\runningheader{}{}{}
+\runningfooter{}{}{Page \thepage}
+
+% -------------------------------------------------------------- multiplechoice
+% Reproduce the "(A) (B) (C) ..." labelling of the original exam.
+\renewcommand{\choicelabel}{$\bigcirc$~(\Alph{choice})}
+
+% ---------------------------------------------------------- true/false macros
+% \TFT -> the statement is TRUE, \TFF -> the statement is FALSE.
+% In the answer version the correct word is set in capitals and bold.
+\newcommand{\TFT}{\ifprintanswers\textbf{TRUE}\hspace{1.1em}False\else True\hspace{1.1em}False\fi}
+\newcommand{\TFF}{True\hspace{1.1em}\ifprintanswers\textbf{FALSE}\else False\fi}
+
+% ------------------------------------------------------------- writing space
+% Reserves room to write in the blank version; collapses in the answer version.
+\newcommand{\answerspace}[1]{\ifprintanswers\else\vspace{#1}\fi}
+
+\begin{document}
+
+% ------------------------------------------------------------------ title page
+\begin{center}
+  {\LARGE\bfseries Sample Exam}\\[2mm]
+  {\Large Medical Image Analysis}\\[6mm]
+\end{center}
+
+\vspace{4mm}
+\noindent Student name:\hrulefill
+
+\vspace{6mm}
+\noindent Immatriculation number:\hrulefill
+
+\vspace{10mm}
+
+\begin{center}
+  {\large\bfseries Exam Questions}
+\end{center}
+
+\noindent\textbf{Note:} All the questions have equal weight.
+
+\vspace{4mm}
+
+\begin{questions}
+
+% =============================================================== Question 1 ===
+\question
+In 2D acquisitions, 2D image slices are acquired in one pre-defined direction one after the
+other, and the final 3D volume is created by stacking the 2D slices. For instance, in axial
+acquisitions 2D slices are acquired in the transverse plane, in sagittal acquisitions in the
+sagittal plane, and in coronal acquisitions in the coronal plane. The voxel sizes of 2D
+acquisitions are given based on the acquisition direction, as in-plane and through-plane voxel
+sizes, where the first is represented with two values (pixel size in the imaging plane) and the
+latter corresponds to a single value (length of the voxel in the third dimension). Recall that
+the field-of-view is the real-world size of the entire image, i.e.\ image size $\times$ voxel
+size. Based on this please compute the following.
+
+\begin{parts}
+
+  \part A \emph{sagittal} acquisition with voxel size in-plane $0.5 \times 0.5$~mm$^2$ with 384
+  pixels in both directions and voxel size through-plane $4.0$~mm with 60 pixels is acquired.
+  What is the field-of-view in the head-to-toe, left-to-right and anterior-to-posterior
+  directions, respectively?
+
+  \begin{solution}
+    Answer: $192 \times 240 \times 192$~mm$^3$.
+
+    The sagittal plane contains the head-to-toe and the anterior-to-posterior directions, so
+    both in-plane directions give $384 \times 0.5 = 192$~mm. The through-plane direction of a
+    sagittal acquisition is left-to-right: $60 \times 4.0 = 240$~mm.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part One year later the same patient is scanned again, this time with an \emph{axial}
+  acquisition with voxel size in-plane $0.8 \times 0.8$~mm$^2$ with a field-of-view of 192~mm in
+  both directions, and voxel size through-plane of $2.0$~mm with a field-of-view of 240~mm.
+  What are the number of voxels in the head-to-toe, left-to-right and anterior-to-posterior
+  directions, respectively?
+
+  \begin{solution}
+    Answer: $120 \times 240 \times 240$~voxels.
+
+    The through-plane direction of an axial acquisition is head-to-toe: $240 / 2.0 = 120$. Both
+    in-plane directions give $192 / 0.8 = 240$.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part You want to compare a volumetric measurement of the same anatomical structure in the two
+  images. Following the guideline given in the lecture, you resample the second image (b) onto
+  the voxel grid of the first image (a). What are the resize factors along the head-to-toe,
+  left-to-right and anterior-to-posterior directions, and what is the resulting image size?
+  Why do you match the voxel size and not the image size?
+
+  \begin{solution}
+    Answer: resize factors $4.0 \times 0.2 \times 1.6$, resulting image size
+    $480 \times 48 \times 384$~voxels.
+
+    The resize factor is the ratio of the old to the new voxel size, per direction:
+    head-to-toe $2.0/0.5 = 4.0$, left-to-right $0.8/4.0 = 0.2$, anterior-to-posterior
+    $0.8/0.5 = 1.6$. Applying these to (b): $120 \cdot 4.0 = 480$, $240 \cdot 0.2 = 48$,
+    $240 \cdot 1.6 = 384$. The field-of-view is unchanged ($240 \times 192 \times 192$~mm$^3$),
+    as it must be.
+
+    Measurements taken in an image correspond to real-world quantities only through the voxel
+    size, so the voxel size is what has to be matched. Matching the image sizes instead would
+    silently change the effective voxel size (and here also the aspect ratio), and the two
+    measurements would no longer be comparable.
+  \end{solution}
+\answerspace{4.5cm}
+
+\end{parts}
+
+% =============================================================== Question 2 ===
+\question
+Many noise suppression methods can be written as a weighted average
+$\hat I(x) = \sum_{y} w(x,y)\, J(y)$ of the noisy image $J$, with $w(x,y) \geq 0$ and
+$\sum_y w(x,y) = 1$. Which of the two weight definitions below is the one used by the
+\emph{non-local means} filter? $N(x)$ denotes the image patch centred at $x$, $Z(x)$ is a
+normalisation constant and $h$ the degree of filtering. Please circle the correct choice.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle w(x,y) = \frac{1}{Z(x)} \exp\left(-\frac{\|J(x) - J(y)\|_2^2}{h^2}\right)$
+  \hspace{1.6cm}
+  $\displaystyle w(x,y) = \frac{1}{Z(x)} \exp\left(-\frac{\|J(N(x)) - J(N(y))\|_2^2}{h^2}\right)$
+\end{center}
+\vspace{2mm}
+
+\begin{solution}
+  Answer: Right one.
+
+  Non-local means compares the whole geometric configuration of a \emph{patch}, not a single
+  grey value. The left expression compares single (noisy) intensities and is the
+  Yaroslavsky / bilateral type of neighbourhood filter, which is much less robust: two pixels
+  can share an intensity by chance while sitting in completely different structures.
+\end{solution}
+\answerspace{1.2cm}
+
+% =============================================================== Question 3 ===
+\question
+Deformable intensity-based registration is usually written in one of the two equivalent forms
+below. The first is derived from a probabilistic model, the second is energy-based;
+$T_\theta$ is the transformation with parameters $\theta$, $I$ the target and $J$ the moving
+image.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle \max_\theta\ \log p(I \mid T_\theta \circ J) + \log p(T_\theta)$
+  \hspace{1.8cm}
+  $\displaystyle \min_\theta\ d(I, T_\theta \circ J) + \lambda\, r(T_\theta^{-1})$
+\end{center}
+\vspace{2mm}
+
+\begin{parts}
+  \part Please indicate which term corresponds to which term in the two formulations.
+
+  \begin{solution}
+    Answer: $\log p(I \mid T_\theta \circ J) \Longleftrightarrow d(I, T_\theta \circ J)$ and
+    $\log p(T_\theta) \Longleftrightarrow \lambda\, r(T_\theta^{-1})$.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part Deformable registration is an ill-posed problem. Which of the two terms addresses this,
+  and how?
+
+  \begin{solution}
+    Answer: the regularisation term $\lambda\, r(T_\theta^{-1})$, equivalently the prior
+    $p(T_\theta)$.
+
+    Many very different transformations explain the intensities about equally well, so the data
+    term alone does not determine a unique solution. The regulariser expresses a preference among
+    them --- e.g.\ $\ell_2$ regularisation of $\nabla u$ prefers smoothly varying displacement
+    fields, $\ell_1$ prefers piecewise constant ones, and elastic / hyperelastic energies prefer
+    small or locally rigid deformations.
+  \end{solution}
+\answerspace{3.5cm}
+\end{parts}
+
+% =============================================================== Question 4 ===
+\question
+Please indicate whether the statement is true or false by circling the correct choice in each of
+the following.
+
+\begin{parts}
+  \part \TFF\ \ In the discrete setting, the \emph{forward} transformation is preferred over
+  the backward (inverse) transformation for resampling an image, because it guarantees that
+  every pixel of the output grid is assigned a value.
+
+  \part \TFT\ \ Nearest-neighbour interpolation is the appropriate choice for transforming a
+  label (segmentation) map, because it does not introduce new values.
+
+  \part \TFF\ \ Bilinear interpolation produces a function that is both continuous and
+  differentiable.
+
+  \part \TFF\ \ In 3D, Keys' cubic convolution (tricubic) interpolation uses only the 8 corner
+  voxels of the cell that contains the query point.
+\end{parts}
+
+\begin{solution}
+  (a) FALSE --- it is exactly the other way around. Under a forward mapping the transformed
+  input pixels do not land on output grid points, two input pixels may land on the same output
+  pixel, and some output pixels receive nothing at all (holes). The backward mapping asks, for
+  each output pixel, where it comes from in the input image, and interpolates there; every
+  output pixel therefore gets a value.
+
+  (b) TRUE --- nearest neighbour only copies existing values, so no labels that do not exist can
+  appear. Bilinear or bicubic interpolation would create spurious intermediate label values at
+  the boundaries.
+
+  (c) FALSE --- bilinear interpolation yields a piecewise-linear function: continuous, but not
+  differentiable at the grid lines. Bicubic interpolation is the one that is both continuous and
+  differentiable.
+
+  (d) FALSE --- the 8 corner voxels are what \emph{trilinear} interpolation uses. Keys' kernel
+  has support $[-2,2]$, covering 4 samples per dimension, i.e.\ $4\times4 = 16$ pixels in 2D and
+  $4\times4\times4 = 64$ voxels in 3D.
+\end{solution}
+
+% =============================================================== Question 5 ===
+\question
+Mixture models and Expectation-Maximization (EM) segmentation are essential building blocks for
+many segmentation algorithms. Consider a multi-modal image in which every pixel carries
+\emph{two} intensity values (for instance a co-registered T1-weighted and T2-weighted pair). How
+many parameters does a Gaussian Mixture Model (GMM) with 3 components have? Count, for each
+component, the mean vector, the full covariance matrix and the mixture weight.
+
+\begin{solution}
+  Answer: $3 \times (2 + 3 + 1) = 18$.
+
+  Per component: a mean vector in $\mathbb{R}^2$ gives 2 parameters; a full $2\times2$ covariance
+  matrix is symmetric and therefore has 3 free parameters ($\sigma_1^2$, $\sigma_2^2$ and one
+  covariance); the mixture weight gives 1. That is 6 parameters per component and 18 in total.
+\end{solution}
+\answerspace{3.0cm}
+
+% =============================================================== Question 6 ===
+\question
+An Active Shape Model (ASM) is fitted to an image iteratively. Once the model has been
+initialised and candidate points have been found by sampling image features along the surface
+normals of the model points, each iteration updates the model in two parts. Please briefly
+describe what these two parts do, and state what keeps the fitted shape anatomically plausible.
+You do not need to write down the equations.
+
+\begin{solution}
+  Answer: \emph{Pose estimation} computes a global transformation --- e.g.\ a similarity
+  transform, i.e.\ translation, rotation and isotropic scaling --- that best aligns the model
+  points with the candidate points found along the normals, for instance by minimising the mean
+  Euclidean distance between the two point sets (ICP). \emph{Shape estimation} then removes the
+  pose and computes the shape parameters $b$ of the PCA (point distribution) model in closed
+  form, which deforms the mean shape along its modes of variation. The two are iterated until
+  convergence.
+
+  Plausibility is enforced by the model itself: only the leading principal modes are kept (e.g.\
+  as many as needed to explain about 90\% of the variance), and each shape parameter is
+  constrained to $|b_i| < 3\sigma_i$, so the fit can only produce shapes that are typical of the
+  training population.
+\end{solution}
+\answerspace{7.5cm}
+
+% =============================================================== Question 7 ===
+\question
+Thin-plate splines (TPS) and free-form deformations (FFD) with cubic B-splines are both
+interpolation-based models for non-linear transformations. Which of the following statements on
+their similarities and differences is \textbf{inaccurate}?
+
+\begin{choices}
+  \choice Both models place displacement vectors on a set of control points and interpolate in
+  between with a smooth basis function, so that the resulting transformation is smooth for any
+  value of the parameters.
+  \choice The influence of a single control point is global in TPS, whereas for FFD with cubic
+  B-splines it is local, because the B-spline basis functions have finite support.
+  \choice In FFD, increasing the number of control points, i.e.\ using a finer control grid,
+  results in smoother transformations.
+  \choice For a given set of $N$ control points in 3D, both models are parameterised by the
+  $3N$ coefficients of the displacement vectors at the control points.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  It is the other way around: a finer control grid gives the model more degrees of freedom
+  locally and therefore produces \emph{less} smooth transformations. This is precisely what makes
+  multi-resolution registration possible --- start with few control points for a coarse, very
+  smooth alignment and progressively refine the grid.
+\end{solution}
+
+% =============================================================== Question 8 ===
+\question
+Multi-atlas and patch-based methods were the state of the art in segmentation for a long time.
+Which of the following statements about them is \textbf{incorrect}?
+
+\begin{choices}
+  \choice In multi-atlas segmentation, every atlas is registered to the unseen image, each atlas
+  produces its own propagated segmentation, and these are combined in a decision fusion step such
+  as majority voting or STAPLE.
+  \choice STAPLE estimates the most probable underlying true segmentation and, simultaneously,
+  the sensitivity and specificity of each of the input segmentations; it is solved iteratively
+  with an Expectation-Maximization algorithm.
+  \choice Selecting only the atlases that are similar to the unseen image before fusing performs
+  worse than naively fusing all available atlases, because discarding atlases throws away
+  information.
+  \choice Patch-based label fusion requires only a coarse, rigid or affine registration, because
+  correspondence is re-established locally by comparing patches inside a search window.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  Atlas selection followed by fusion \emph{outperforms} naive fusion of all atlases: atlases that
+  are dissimilar to the target contribute mostly registration errors, and removing them improves
+  the fused result. The same reasoning underlies weighted voting, where atlases are weighted by
+  how well they match the target rather than being discarded outright.
+\end{solution}
+
+% =============================================================== Question 9 ===
+\question
+Convolutional neural networks and Vision Transformers (ViT) build very different assumptions
+into the model. Which of the following statements is \textbf{incorrect}?
+
+\begin{choices}
+  \choice In CNNs, locality and the two-dimensional neighbourhood structure of the image act as
+  strong inductive biases for vision tasks.
+  \choice In a ViT, self-attention is global and only the MLP layers act locally, so that
+  splitting the image into patches is essentially the only two-dimensional inductive bias built
+  into the model.
+  \choice Because a ViT builds in fewer assumptions about images, it typically requires
+  \emph{less} training data than a comparable CNN to reach the same accuracy.
+  \choice Without positional encodings, a transformer encoder is equivariant to permutations of
+  its input tokens, which is why positional information has to be added to the token embeddings.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  Fewer built-in assumptions means the geometric properties of images that a CNN gets for free
+  have to be learned from the data instead. ViTs therefore generally require \emph{more} training
+  data than a comparable CNN, not less.
+\end{solution}
+
+% ============================================================== Question 10 ===
+\question
+You are training a U-Net to segment a small lesion that occupies far less than 1\% of the image.
+Which of the following statements is correct?
+
+\begin{choices}
+  \choice With pixel-wise cross-entropy, the loss contributed by the lesion is typically much
+  smaller than the loss contributed by the rest of the image, so the lesion can be dominated
+  during training.
+  \choice The S\o{}rensen-Dice coefficient computed on the binary label sets is differentiable
+  and can therefore be used directly as a training loss.
+  \choice The Dice loss makes the contribution of a class proportional to its size, which is why
+  it helps for small structures.
+  \choice The skip connections of the U-Net remove any need to reconsider the loss function,
+  because they restore the resolution lost in the encoder.
+  \choice Multi-class cross-entropy cannot be used when more than two classes are present.
+\end{choices}
+
+\begin{solution}
+  Answer: A.
+
+  The cross-entropy loss decomposes into a sum over pixels,
+  $\mathcal{L} = \mathcal{L}_{\Omega_{small}} + \mathcal{L}_{\overline{\Omega_{small}}}$, and
+  since $|\Omega_{small}| \ll |\overline{\Omega_{small}}|$ the first term is normally negligible.
+  (B) is wrong because the Dice coefficient as a set measure is \emph{not} differentiable, which
+  is why the soft Dice loss is used instead. (C) is wrong in the opposite direction: the soft Dice
+  loss gives each class a contribution of comparable magnitude \emph{regardless} of its size,
+  which is exactly why it helps here. (D) confuses resolution with class imbalance --- skip
+  connections address the former, not the latter.
+\end{solution}
+
+% ============================================================== Question 11 ===
+\question
+Consider the encoder of a segmentation network that takes grey-scale input images of size
+$128 \times 128$ with one input channel and has the following architecture:
+
+\begin{itemize}
+  \item \textbf{Conv1}: 32 kernels with kernel size $K = 3 \times 3$, stride $S = 1 \times 1$ in
+    each direction, and ``same'' padding $P = 1$.
+  \item \textbf{Pool1}: Max pooling with $K = 2 \times 2$ and $S = 2$.
+  \item \textbf{Conv2}: 64 kernels with $K = 3 \times 3$, $S = 1$ and ``same'' padding $P = 1$.
+  \item \textbf{Pool2}: Max pooling with $K = 2 \times 2$ and $S = 2$.
+  \item \textbf{Conv3}: 128 kernels with $K = 3 \times 3$, $S = 1$ and ``same'' padding $P = 1$.
+  \item \textbf{Pool3}: Max pooling with $K = 2 \times 2$ and $S = 2$.
+\end{itemize}
+
+\noindent Circle True or False:
+
+\begin{parts}
+  \part \TFT\ \ The global receptive field of a neuron in Pool3 is $22 \times 22$.
+
+  \part \TFF\ \ The global stride of a neuron in Pool3 is $3 \times 3$, one for each pooling
+  layer.
+
+  \part \TFT\ \ The total number of convolutional kernel weights (excluding the biases) in
+  Conv1, Pool1, Conv2, Pool2, Conv3 and Pool3 is
+  $3 \cdot 3 \cdot 1 \cdot 32 + 3 \cdot 3 \cdot 32 \cdot 64 + 3 \cdot 3 \cdot 64 \cdot 128
+  = 92\,448$.
+
+  \part \TFF\ \ The output of Pool3 has a spatial size of $16 \times 16$, and each of its
+  neurons therefore sees the entire $128 \times 128$ input image.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- track the receptive field $R$ and the jump (global stride) $j$ layer by layer,
+  starting from $R = 1$, $j = 1$, using $R \leftarrow R + (K-1)\cdot j$ and $j \leftarrow j \cdot S$:
+  Conv1 $\rightarrow R = 3,\ j = 1$; Pool1 $\rightarrow R = 4,\ j = 2$;
+  Conv2 $\rightarrow R = 8,\ j = 2$; Pool2 $\rightarrow R = 10,\ j = 4$;
+  Conv3 $\rightarrow R = 18,\ j = 4$; Pool3 $\rightarrow R = 22,\ j = 8$.
+
+  (b) FALSE --- strides compound multiplicatively, they do not add: three poolings of stride 2
+  give a global stride of $2 \cdot 2 \cdot 2 = 8$, i.e.\ $8 \times 8$.
+
+  (c) TRUE --- $288 + 18\,432 + 73\,728 = 92\,448$. Pooling layers have no learnable parameters
+  at all.
+
+  (d) FALSE --- the spatial size is indeed $128 \to 64 \to 32 \to 16$, since ``same'' convolutions
+  do not change the size and each pooling halves it. But the output size and the receptive field
+  are different things: by (a) a neuron in Pool3 only sees a $22 \times 22$ window of the input,
+  far less than the whole image. This is precisely why deeper networks, or skip connections
+  combined with more downsampling, are needed to gather global context.
+\end{solution}
+
+% ============================================================== Question 12 ===
+\question
+Which of the following statements on uncertainty estimation, domain shift and learning from
+unlabelled examples are correct (multiple answers are possible)?
+
+\begin{choices}
+  \choice Standard, deterministic training and inference amount to approximating
+  $p(\theta \mid D, M)$ by a Dirac delta at $\theta^*$ and $p(y \mid x, \theta, M)$ by a Dirac
+  delta at $f(x;\theta)$, so that the resulting predictive distribution is a point mass carrying
+  no uncertainty at all.
+  \choice Test-time adaptation still requires labelled samples from the target domain, but fewer
+  of them than fine-tuning does.
+  \choice Self-training with pseudo-labels works well only if the predictions of the initial
+  model are reasonably good; with poor initial estimates it can diverge quickly.
+  \choice In the mean-teacher model the teacher is trained by minimising the supervised loss on
+  the labelled examples, while the student is the exponential moving average of the teacher.
+  \choice Domain generalisation by extreme data augmentation trains only in the source domain,
+  but the improvement it brings may be limited to the kinds of variation that the augmentations
+  actually cover.
+\end{choices}
+
+\begin{solution}
+  Answer: (A), (C) and (E) are correct.
+
+  (B) is wrong: test-time adaptation uses \emph{no} labels and no training set at the target
+  domain --- it adapts a subset of the parameters at inference time by minimising a label-free
+  cost (prediction entropy, an auto-encoder reconstruction loss, or the agreement of the output
+  with a source-trained segmentation prior). It is fine-tuning that needs a few labelled target
+  samples.
+
+  (D) has the two networks swapped: the student is the one trained on the supervised plus
+  consistency loss, and the teacher is the exponential moving average of the student,
+  $\phi^i = \alpha \phi^{i-1} + (1-\alpha)\theta^i$.
+\end{solution}
+
+\end{questions}
+
+\end{document}
