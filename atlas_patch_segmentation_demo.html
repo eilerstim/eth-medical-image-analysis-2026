@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>(Multi)Atlas &amp; Patch-Based Segmentation — Interactive Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; }
+  #root { min-height: 100vh; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback, useMemo } = React;
+
+
+// ═══════════════════════════════════════════════════════════════════
+// REALISTIC 2D BRAIN SLICE GENERATOR
+// ═══════════════════════════════════════════════════════════════════
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function noise2D(x, y, seed) {
+  const rng = mulberry32(Math.floor(x * 73.1 + y * 157.3 + seed * 311.7));
+  return rng();
+}
+
+function smoothNoise(x, y, seed, scale) {
+  const sx = x / scale, sy = y / scale;
+  const ix = Math.floor(sx), iy = Math.floor(sy);
+  const fx = sx - ix, fy = sy - iy;
+  const a = noise2D(ix, iy, seed);
+  const b = noise2D(ix + 1, iy, seed);
+  const c = noise2D(ix, iy + 1, seed);
+  const d = noise2D(ix + 1, iy + 1, seed);
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+
+function fbm(x, y, seed, octaves = 4) {
+  let val = 0, amp = 1, freq = 1, maxAmp = 0;
+  for (let i = 0; i < octaves; i++) {
+    val += smoothNoise(x * freq, y * freq, seed + i * 100, 6) * amp;
+    maxAmp += amp;
+    amp *= 0.5;
+    freq *= 2;
+  }
+  return val / maxAmp;
+}
+
+function generateRealisticBrain(W, H, params) {
+  const {
+    seed = 0,
+    skullEllipseA = 0.44, skullEllipseB = 0.50,
+    cortexThicknessBase = 0.11,
+    cortexFoldFreq = 7, cortexFoldAmp = 0.035,
+    ventricleScaleX = 0.065, ventricleScaleY = 0.10,
+    ventricleOffsetY = -0.04,
+    leftVentOffset = -0.06, rightVentOffset = 0.06,
+    ventricleAngle = 0.15,
+    wmIntensity = 0.78, gmIntensity = 0.52, csfIntensity = 0.22,
+    noiseLevel = 0.04,
+    thalamusSize = 0.07,
+    caudateSize = 0.045, caudateOffsetX = 0.10,
+    putamenSize = 0.055, putamenOffsetX = 0.16,
+    sulcalDepthVar = 0.6,
+    globalShearX = 0, globalShearY = 0,
+    asymmetry = 0,
+  } = params;
+
+  const data = new Float32Array(W * H);
+  const labels = new Int8Array(W * H);
+  const rng = mulberry32(seed);
+  const cx = W / 2, cy = H / 2;
+
+  for (let yi = 0; yi < H; yi++) {
+    for (let xi = 0; xi < W; xi++) {
+      const idx = yi * W + xi;
+      let nx = (xi - cx) / W + globalShearX * ((yi - cy) / H);
+      let ny = (yi - cy) / H + globalShearY * ((xi - cx) / W);
+      if (nx > 0) nx *= (1 + asymmetry * 0.15);
+      else nx *= (1 - asymmetry * 0.15);
+
+      const angle = Math.atan2(ny, nx);
+      const r = Math.sqrt(nx * nx / (skullEllipseA * skullEllipseA) + ny * ny / (skullEllipseB * skullEllipseB));
+
+      if (r > 1.05) {
+        data[idx] = 0.02 + rng() * noiseLevel * 0.5;
+        labels[idx] = 0;
+        continue;
+      }
+      if (r > 0.95) {
+        data[idx] = 0.12 + rng() * 0.03;
+        labels[idx] = 0;
+        continue;
+      }
+
+      const csfBoundary = 0.90 + fbm(xi, yi, seed + 50, 3) * 0.02;
+      if (r > csfBoundary) {
+        data[idx] = csfIntensity + (rng() - 0.5) * noiseLevel;
+        labels[idx] = 3;
+        continue;
+      }
+
+      const foldPattern = Math.sin(angle * cortexFoldFreq + seed * 0.5) * cortexFoldAmp
+        + Math.sin(angle * (cortexFoldFreq * 1.7) + seed * 1.3) * cortexFoldAmp * 0.5
+        + fbm(xi, yi, seed + 200, 3) * cortexFoldAmp * sulcalDepthVar;
+
+      const cortexOuter = csfBoundary;
+      const cortexInner = cortexOuter - cortexThicknessBase - foldPattern;
+
+      const sulcalCSF = Math.sin(angle * cortexFoldFreq * 2 + seed) * 0.015;
+      if (r > cortexOuter - 0.01 && sulcalCSF > 0.005 && r > cortexInner + 0.03) {
+        data[idx] = csfIntensity + (rng() - 0.5) * noiseLevel * 0.5;
+        labels[idx] = 3;
+        continue;
+      }
+
+      if (r > cortexInner) {
+        const depth = (r - cortexInner) / (cortexOuter - cortexInner);
+        data[idx] = gmIntensity + depth * 0.05 + (rng() - 0.5) * noiseLevel;
+        labels[idx] = 2;
+        continue;
+      }
+
+      const thDist = (ddnx, ddny, ox, oy, sx, sy) => {
+        const ddx = (ddnx - ox) / sx, ddy = (ddny - oy) / sy;
+        return ddx * ddx + ddy * ddy;
+      };
+      const thL = thDist(nx, ny, -0.04, -0.02, thalamusSize, thalamusSize * 1.3);
+      const thR = thDist(nx, ny, 0.04, -0.02, thalamusSize, thalamusSize * 1.3);
+      if (thL < 1 || thR < 1) {
+        data[idx] = gmIntensity * 0.95 + (rng() - 0.5) * noiseLevel;
+        labels[idx] = 2;
+        continue;
+      }
+
+      const caL = thDist(nx, ny, -caudateOffsetX, -0.05, caudateSize, caudateSize * 1.8);
+      const caR = thDist(nx, ny, caudateOffsetX, -0.05, caudateSize, caudateSize * 1.8);
+      if (caL < 1 || caR < 1) {
+        data[idx] = gmIntensity * 0.9 + (rng() - 0.5) * noiseLevel;
+        labels[idx] = 2;
+        continue;
+      }
+
+      const puL = thDist(nx, ny, -putamenOffsetX, -0.02, putamenSize, putamenSize * 1.5);
+      const puR = thDist(nx, ny, putamenOffsetX, -0.02, putamenSize, putamenSize * 1.5);
+      if (puL < 1 || puR < 1) {
+        data[idx] = gmIntensity * 0.88 + (rng() - 0.5) * noiseLevel;
+        labels[idx] = 2;
+        continue;
+      }
+
+      for (const side of [-1, 1]) {
+        const vox = side * (side < 0 ? -leftVentOffset : rightVentOffset);
+        const vCx = nx - vox;
+        const vCy = ny - ventricleOffsetY;
+        const ca = Math.cos(ventricleAngle * side), sa = Math.sin(ventricleAngle * side);
+        const rvx = vCx * ca - vCy * sa;
+        const rvy = vCx * sa + vCy * ca;
+        const body = (rvx / ventricleScaleX) ** 2 + (rvy / ventricleScaleY) ** 2;
+        const fhx = rvx + 0.02, fhy = rvy + ventricleScaleY * 0.7;
+        const frontalHorn = (fhx / (ventricleScaleX * 0.6)) ** 2 + (fhy / (ventricleScaleY * 0.5)) ** 2;
+        const ohx = rvx - 0.01, ohy = rvy - ventricleScaleY * 0.7;
+        const occHorn = (ohx / (ventricleScaleX * 0.5)) ** 2 + (ohy / (ventricleScaleY * 0.4)) ** 2;
+
+        if (body < 1 || frontalHorn < 1 || occHorn < 1) {
+          data[idx] = csfIntensity + (rng() - 0.5) * noiseLevel * 0.5;
+          labels[idx] = 3;
+          break;
+        }
+      }
+      if (labels[idx] === 3) continue;
+
+      if (Math.abs(nx) < 0.008 && ny > -0.08 && ny < 0.04) {
+        data[idx] = csfIntensity + (rng() - 0.5) * noiseLevel * 0.5;
+        labels[idx] = 3;
+        continue;
+      }
+
+      const wmTexture = fbm(xi, yi, seed + 300, 3) * 0.08;
+      data[idx] = wmIntensity + wmTexture + (rng() - 0.5) * noiseLevel;
+      labels[idx] = 1;
+    }
+  }
+  return { data, labels, width: W, height: H };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ATLAS CONFIGURATIONS
+// ═══════════════════════════════════════════════════════════════════
+
+const ATLAS_CONFIGS = [
+  { seed: 10, skullEllipseA: 0.42, skullEllipseB: 0.48, cortexFoldFreq: 6.5, cortexFoldAmp: 0.038, cortexThicknessBase: 0.12, ventricleScaleX: 0.058, ventricleScaleY: 0.09, ventricleOffsetY: -0.03, asymmetry: -0.2, globalShearX: 0.02, noiseLevel: 0.04, putamenOffsetX: 0.15 },
+  { seed: 55, skullEllipseA: 0.46, skullEllipseB: 0.52, cortexFoldFreq: 8, cortexFoldAmp: 0.03, cortexThicknessBase: 0.10, ventricleScaleX: 0.075, ventricleScaleY: 0.12, ventricleOffsetY: -0.05, asymmetry: 0.3, globalShearX: -0.01, noiseLevel: 0.035, putamenOffsetX: 0.17 },
+  { seed: 112, skullEllipseA: 0.43, skullEllipseB: 0.50, cortexFoldFreq: 7.5, cortexFoldAmp: 0.04, cortexThicknessBase: 0.13, ventricleScaleX: 0.06, ventricleScaleY: 0.095, ventricleOffsetY: -0.02, asymmetry: -0.1, globalShearX: 0.015, noiseLevel: 0.045, caudateOffsetX: 0.11, sulcalDepthVar: 0.8 },
+  { seed: 200, skullEllipseA: 0.48, skullEllipseB: 0.47, cortexFoldFreq: 6, cortexFoldAmp: 0.032, cortexThicknessBase: 0.09, ventricleScaleX: 0.08, ventricleScaleY: 0.13, ventricleOffsetY: -0.06, asymmetry: 0.5, globalShearX: 0.03, noiseLevel: 0.038, thalamusSize: 0.08 },
+  { seed: 333, skullEllipseA: 0.44, skullEllipseB: 0.54, cortexFoldFreq: 9, cortexFoldAmp: 0.028, cortexThicknessBase: 0.11, ventricleScaleX: 0.055, ventricleScaleY: 0.085, ventricleOffsetY: -0.035, asymmetry: -0.4, globalShearX: -0.025, noiseLevel: 0.042, putamenSize: 0.06 },
+  { seed: 450, skullEllipseA: 0.45, skullEllipseB: 0.49, cortexFoldFreq: 7, cortexFoldAmp: 0.036, cortexThicknessBase: 0.105, ventricleScaleX: 0.07, ventricleScaleY: 0.11, ventricleOffsetY: -0.04, asymmetry: 0.15, globalShearX: 0, noiseLevel: 0.04, sulcalDepthVar: 0.4 },
+  { seed: 600, skullEllipseA: 0.47, skullEllipseB: 0.51, cortexFoldFreq: 8.5, cortexFoldAmp: 0.042, cortexThicknessBase: 0.115, ventricleScaleX: 0.062, ventricleScaleY: 0.10, ventricleOffsetY: -0.025, asymmetry: -0.35, globalShearX: 0.01, noiseLevel: 0.037, caudateSize: 0.05 },
+  { seed: 777, skullEllipseA: 0.41, skullEllipseB: 0.53, cortexFoldFreq: 5.5, cortexFoldAmp: 0.034, cortexThicknessBase: 0.125, ventricleScaleX: 0.085, ventricleScaleY: 0.14, ventricleOffsetY: -0.055, asymmetry: 0.4, globalShearX: -0.02, noiseLevel: 0.044, thalamusSize: 0.065 },
+];
+
+const TARGET_CONFIG = { seed: 999, skullEllipseA: 0.445, skullEllipseB: 0.505, cortexFoldFreq: 7.2, cortexFoldAmp: 0.033, cortexThicknessBase: 0.108, ventricleScaleX: 0.064, ventricleScaleY: 0.098, ventricleOffsetY: -0.038, asymmetry: 0.05, globalShearX: 0.005, noiseLevel: 0.036 };
+
+const GRID = 64;
+const LABEL_COLORS = ["#0a0a14", "#dce0f0", "#8890a8", "#2e4468"];
+const LABEL_NAMES = ["Background", "White Matter", "Gray Matter", "CSF"];
+const LABEL_RENDER = [[10, 10, 20], [220, 224, 240], [136, 144, 168], [46, 68, 104]];
+
+// ═══════════════════════════════════════════════════════════════════
+// CANVAS RENDERERS
+// ═══════════════════════════════════════════════════════════════════
+
+function renderSlice(ctx, slice, mode, highlight, patchSize, mismatchData) {
+  const { data, labels, width, height } = slice;
+  const cw = ctx.canvas.width, ch = ctx.canvas.height;
+  const sx = cw / width, sy = ch / height;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (mode === "labels") {
+        const c = LABEL_RENDER[labels[idx]];
+        ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      } else if (mode === "mismatch" && mismatchData) {
+        const m = mismatchData[idx];
+        if (m === 0) {
+          const v = Math.floor(data[idx] * 200 + 30);
+          ctx.fillStyle = `rgb(${v},${v},${v})`;
+        } else {
+          ctx.fillStyle = `rgba(255,60,80,${0.4 + Math.abs(m) * 0.6})`;
+        }
+      } else {
+        const v = Math.floor(data[idx] * 255);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+      }
+      ctx.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
+    }
+  }
+
+  if (highlight) {
+    const { px, py } = highlight;
+    const half = Math.floor(patchSize / 2);
+    ctx.strokeStyle = "#ff4060";
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect((px - half) * sx, (py - half) * sy, patchSize * sx, patchSize * sy);
+    ctx.strokeStyle = "rgba(255,64,96,0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(px * sx + sx / 2, 0); ctx.lineTo(px * sx + sx / 2, ch);
+    ctx.moveTo(0, py * sy + sy / 2); ctx.lineTo(cw, py * sy + sy / 2);
+    ctx.stroke();
+  }
+}
+
+function renderHeatmap(ctx, weights, W, H) {
+  const cw = ctx.canvas.width, ch = ctx.canvas.height;
+  const sx = cw / W, sy = ch / H;
+  const maxW = Math.max(...weights, 1e-10);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const w = weights[y * W + x] / maxW;
+      const r = Math.floor(20 + 235 * Math.pow(w, 0.6));
+      const g = Math.floor(20 + 60 * w);
+      const b = Math.floor(100 - 80 * w);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ═══════════════════════════════════════════════════════════════════
+
+function BrainCanvas({ slice, mode = "intensity", highlight, patchSize, mismatchData, onClick, size = 240, label }) {
+  const ref = useRef(null);
+  const { width, height } = slice;
+  useEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    if (ctx) renderSlice(ctx, slice, mode, highlight, patchSize, mismatchData);
+  }, [slice, mode, highlight, patchSize, mismatchData]);
+  const handleClick = (e) => {
+    if (!onClick) return;
+    const rect = ref.current.getBoundingClientRect();
+    const x = Math.floor(((e.clientX - rect.left) / rect.width) * width);
+    const y = Math.floor(((e.clientY - rect.top) / rect.height) * height);
+    onClick(Math.max(4, Math.min(width - 5, x)), Math.max(4, Math.min(height - 5, y)));
+  };
+  return (
+    <div style={{ textAlign: "center" }}>
+      {label && <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: "#58a6ff", marginBottom: 6, fontWeight: 700 }}>{label}</div>}
+      <canvas ref={ref} width={width * 4} height={height * 4} onClick={handleClick}
+        style={{ width: size, height: size, imageRendering: "pixelated", borderRadius: 8, cursor: onClick ? "crosshair" : "default", border: "1px solid rgba(255,255,255,0.06)" }} />
+    </div>
+  );
+}
+
+function HeatmapCanvas({ weights, W, H, size = 200, label }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    if (ctx) renderHeatmap(ctx, weights, W, H);
+  }, [weights, W, H]);
+  return (
+    <div style={{ textAlign: "center" }}>
+      {label && <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: "#58a6ff", marginBottom: 6, fontWeight: 700 }}>{label}</div>}
+      <canvas ref={ref} width={W * 4} height={H * 4}
+        style={{ width: size, height: size, imageRendering: "pixelated", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" }} />
+    </div>
+  );
+}
+
+function computeDice(labelsA, labelsB, classId) {
+  let tp = 0, fpfn = 0;
+  for (let i = 0; i < labelsA.length; i++) {
+    const a = labelsA[i] === classId, b = labelsB[i] === classId;
+    if (a && b) tp++; else if (a || b) fpfn++;
+  }
+  return tp > 0 ? (2 * tp) / (2 * tp + fpfn) : 0;
+}
+
+function DiceBar({ label, color, value }) {
+  return (
+    <div style={{ flex: 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+        <div style={{ width: 10, height: 10, borderRadius: 2, background: color, border: "1px solid rgba(255,255,255,0.1)" }} />
+        <span style={{ fontSize: 11, color: "#8b949e" }}>{label}</span>
+      </div>
+      <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 5, height: 22, position: "relative", overflow: "hidden" }}>
+        <div style={{ width: `${value * 100}%`, height: "100%", borderRadius: 5, background: value > 0.7 ? "linear-gradient(90deg,#58a6ff,#4caf50)" : "linear-gradient(90deg,#ff9800,#ff5722)", transition: "width 0.4s ease" }} />
+        <span style={{ position: "absolute", right: 6, top: 2, fontSize: 11, fontWeight: 700, color: "#fff" }}>{(value * 100).toFixed(1)}%</span>
+      </div>
+    </div>
+  );
+}
+
+function InfoBox({ children }) {
+  return <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: "16px 20px", border: "1px solid rgba(255,255,255,0.07)", lineHeight: 1.7 }}>{children}</div>;
+}
+
+function SectionLabel({ children }) {
+  return <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 2, color: "#58a6ff", marginBottom: 10, fontWeight: 700 }}>{children}</div>;
+}
+
+function MiniPatch({ patch, size, border = "#58a6ff" }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const ctx = ref.current?.getContext("2d");
+    if (!ctx) return;
+    const s = 5;
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const v = Math.floor((patch[y * size + x] || 0) * 255);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(x * s, y * s, s, s);
+      }
+  }, [patch, size]);
+  return <canvas ref={ref} width={size * 5} height={size * 5} style={{ imageRendering: "pixelated", borderRadius: 4, border: `2px solid ${border}`, display: "block", width: size * 5, height: size * 5 }} />;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB 1: ATLAS-BASED SEGMENTATION
+// ═══════════════════════════════════════════════════════════════════
+
+function AtlasTab() {
+  const target = useMemo(() => generateRealisticBrain(GRID, GRID, TARGET_CONFIG), []);
+  const atlases = useMemo(() => ATLAS_CONFIGS.slice(0, 5).map(c => generateRealisticBrain(GRID, GRID, c)), []);
+  const [sel, setSel] = useState(0);
+
+  const mismatchData = useMemo(() => {
+    const m = new Int8Array(GRID * GRID);
+    const a = atlases[sel].labels, t = target.labels;
+    for (let i = 0; i < m.length; i++) m[i] = a[i] !== t[i] ? 1 : 0;
+    return m;
+  }, [sel, atlases, target]);
+
+  const dice = useMemo(() => [1, 2, 3].map(c => computeDice(atlases[sel].labels, target.labels, c)), [sel, atlases, target]);
+  const avgDice = (dice[0] + dice[1] + dice[2]) / 3;
+  const mismatchCount = useMemo(() => { let c = 0; for (let i = 0; i < mismatchData.length; i++) if (mismatchData[i]) c++; return c; }, [mismatchData]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <InfoBox>
+        <p style={{ color: "#8b949e", fontSize: 13, margin: 0 }}>
+          <strong style={{ color: "#e6edf3" }}>Single atlas segmentation</strong> registers a labeled atlas to the target and transfers labels via the deformation field.
+          The result depends heavily on which atlas is chosen — anatomical differences lead to <strong style={{ color: "#ff6b6b" }}>registration errors</strong> (shown in red).
+          Select different atlases to see how brain shape variability causes different mismatch patterns.
+        </p>
+      </InfoBox>
+
+      <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+        <div>
+          <SectionLabel>Atlas Library (select one)</SectionLabel>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
+            {atlases.map((a, i) => (
+              <div key={i} onClick={() => setSel(i)} style={{
+                cursor: "pointer", borderRadius: 8, padding: 3,
+                border: i === sel ? "2px solid #58a6ff" : "2px solid transparent",
+                opacity: i === sel ? 1 : 0.55, transition: "all 0.2s",
+                background: i === sel ? "rgba(88,166,255,0.06)" : "transparent",
+              }}>
+                <BrainCanvas slice={a} mode="labels" size={68} />
+                <div style={{ fontSize: 9, textAlign: "center", marginTop: 3, color: i === sel ? "#58a6ff" : "#8b949e", fontWeight: i === sel ? 700 : 400 }}>Atlas {i + 1}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
+          <BrainCanvas slice={atlases[sel]} mode="labels" size={180} label={`Atlas ${sel + 1} Labels`} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", paddingTop: 30 }}>
+            <div style={{ fontSize: 10, color: "#8b949e", marginBottom: 4 }}>Registration</div>
+            <div style={{ fontSize: 28, color: "#58a6ff" }}>⟶</div>
+            <div style={{ fontSize: 10, color: "#8b949e", marginTop: 4 }}>atlas → target</div>
+          </div>
+          <BrainCanvas slice={target} mode="intensity" size={180} label="Target Image" />
+          <div>
+            <BrainCanvas slice={target} mode="mismatch" mismatchData={mismatchData} size={180} label="Registration Errors" />
+            <div style={{ textAlign: "center", marginTop: 6 }}>
+              <span style={{ fontSize: 11, color: "#ff6b6b", fontWeight: 600 }}>
+                {mismatchCount} voxels mismatched ({(mismatchCount / (GRID * GRID) * 100).toFixed(1)}%)
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 16, border: "1px solid rgba(255,255,255,0.07)" }}>
+        <SectionLabel>Dice Scores — Atlas {sel + 1} → Target (avg: {(avgDice * 100).toFixed(1)}%)</SectionLabel>
+        <div style={{ display: "flex", gap: 14 }}>
+          {[1, 2, 3].map((c, i) => <DiceBar key={c} label={LABEL_NAMES[c]} color={LABEL_COLORS[c]} value={dice[i]} />)}
+        </div>
+        <p style={{ fontSize: 11, color: "#6e7681", marginTop: 10, fontStyle: "italic", margin: "10px 0 0 0" }}>
+          The red overlay shows where atlas labels disagree with true target labels — these registration errors motivate using multiple atlases.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB 2: MULTI-ATLAS FUSION
+// ═══════════════════════════════════════════════════════════════════
+
+function FusionTab() {
+  const target = useMemo(() => generateRealisticBrain(GRID, GRID, TARGET_CONFIG), []);
+  const atlases = useMemo(() => ATLAS_CONFIGS.map(c => generateRealisticBrain(GRID, GRID, c)), []);
+  const [numAtlases, setNumAtlases] = useState(4);
+  const [method, setMethod] = useState("majority");
+  const [inspectVoxel, setInspectVoxel] = useState(null);
+
+  // Precompute GLOBAL similarity weight per atlas (NCC over entire image)
+  const globalWeights = useMemo(() => {
+    return atlases.map(atlas => {
+      let sumDiff2 = 0, count = 0;
+      for (let i = 0; i < GRID * GRID; i++) {
+        if (target.labels[i] === 0 && atlas.labels[i] === 0) continue; // skip background
+        const d = atlas.data[i] - target.data[i];
+        sumDiff2 += d * d;
+        count++;
+      }
+      return Math.exp(-sumDiff2 / (count * 0.04));
+    });
+  }, [atlases, target]);
+
+  const { fused, voxelDetails } = useMemo(() => {
+    const n = numAtlases, len = GRID * GRID;
+    const result = new Int8Array(len);
+    const details = new Array(len);
+
+    for (let i = 0; i < len; i++) {
+      const votes = [0, 0, 0, 0];
+      const weights = [];
+
+      if (method === "majority") {
+        // Equal weight = 1 for every atlas
+        for (let a = 0; a < n; a++) {
+          votes[atlases[a].labels[i]]++;
+          weights.push({ atlas: a, label: atlases[a].labels[i], weight: 1, intensity: atlases[a].data[i] });
+        }
+      } else if (method === "global") {
+        // GLOBAL weighting: one fixed weight per atlas (same for ALL voxels)
+        for (let a = 0; a < n; a++) {
+          const w = globalWeights[a];
+          votes[atlases[a].labels[i]] += w;
+          weights.push({ atlas: a, label: atlases[a].labels[i], weight: w, intensity: atlases[a].data[i] });
+        }
+      } else {
+        // LOCAL weighting: weight varies per voxel, based on local patch similarity
+        const yi = Math.floor(i / GRID), xi = i % GRID;
+        const R = 3; // local patch radius
+        for (let a = 0; a < n; a++) {
+          let localDist = 0, count = 0;
+          for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+            const nx = xi + dx, ny = yi + dy;
+            if (nx >= 0 && nx < GRID && ny >= 0 && ny < GRID) {
+              const diff = atlases[a].data[ny * GRID + nx] - target.data[ny * GRID + nx];
+              localDist += diff * diff;
+              count++;
+            }
+          }
+          const w = Math.exp(-localDist / (count * 0.03));
+          votes[atlases[a].labels[i]] += w;
+          weights.push({ atlas: a, label: atlases[a].labels[i], weight: w, intensity: atlases[a].data[i] });
+        }
+      }
+      result[i] = votes.indexOf(Math.max(...votes));
+      details[i] = { votes: [...votes], weights, predicted: result[i] };
+    }
+    return { fused: { data: target.data, labels: result, width: GRID, height: GRID }, voxelDetails: details };
+  }, [numAtlases, method, atlases, target, globalWeights]);
+
+  const dice = useMemo(() => [1, 2, 3].map(c => computeDice(fused.labels, target.labels, c)), [fused, target]);
+  const inspected = inspectVoxel ? voxelDetails[inspectVoxel.py * GRID + inspectVoxel.px] : null;
+  const trueLabel = inspectVoxel ? target.labels[inspectVoxel.py * GRID + inspectVoxel.px] : null;
+
+  const METHODS = [
+    { id: "majority", name: "Majority Voting", desc: "Each atlas gets equal weight (w=1). The most common label wins. Simple but ignores atlas quality." },
+    { id: "global", name: "Global Weighted Voting", desc: "Each atlas gets one fixed weight based on overall image similarity to the target. The same weight applies at every voxel." },
+    { id: "local", name: "Locally Weighted Voting", desc: "Each atlas's weight varies per voxel based on local patch similarity (7×7 neighborhood). Better atlases in a region get more influence there." },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <InfoBox>
+        <p style={{ color: "#8b949e", fontSize: 13, margin: 0 }}>
+          <strong style={{ color: "#e6edf3" }}>Multi-atlas fusion</strong> registers multiple atlases and combines their predictions.
+          The key question is how to weight each atlas's contribution: equally (majority voting), by <em>global</em> image similarity (one weight per atlas, constant everywhere),
+          or by <em>local</em> patch similarity (weight varies per voxel — an atlas that matches well near the ventricles may match poorly in the cortex).
+          <strong style={{ color: "#e6edf3" }}> Click on the fused result</strong> to inspect the per-atlas weights at that voxel.
+        </p>
+      </InfoBox>
+
+      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 220, maxWidth: 250 }}>
+          <SectionLabel>Atlases: {numAtlases}</SectionLabel>
+          <input type="range" min={1} max={8} value={numAtlases} onChange={(e) => setNumAtlases(+e.target.value)} style={{ width: "100%", accentColor: "#58a6ff" }} />
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
+            {atlases.slice(0, numAtlases).map((a, i) => <BrainCanvas key={i} slice={a} mode="labels" size={50} />)}
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <SectionLabel>Fusion Method</SectionLabel>
+            {METHODS.map(m => (
+              <label key={m.id} style={{
+                display: "block", cursor: "pointer", padding: "8px 10px", borderRadius: 8, marginBottom: 4,
+                background: method === m.id ? "rgba(88,166,255,0.08)" : "transparent",
+                border: method === m.id ? "1px solid rgba(88,166,255,0.3)" : "1px solid rgba(255,255,255,0.04)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input type="radio" name="fm" checked={method === m.id} onChange={() => setMethod(m.id)} style={{ accentColor: "#58a6ff" }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#e6edf3" }}>{m.name}</span>
+                </div>
+                <div style={{ fontSize: 10, color: "#6e7681", marginTop: 2, marginLeft: 22 }}>{m.desc}</div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+          <BrainCanvas slice={fused} mode="labels" size={210} label="Fused Result (click to inspect)"
+            highlight={inspectVoxel} patchSize={1} onClick={(x, y) => setInspectVoxel({ px: x, py: y })} />
+          <BrainCanvas slice={target} mode="labels" size={210} label="Ground Truth" />
+        </div>
+
+        {inspected && (
+          <div style={{ minWidth: 270, maxWidth: 320, background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 16, border: "1px solid rgba(88,166,255,0.2)" }}>
+            <SectionLabel>Fusion Detail at ({inspectVoxel.px}, {inspectVoxel.py})</SectionLabel>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: "#8b949e" }}>True:</span>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: LABEL_COLORS[trueLabel], display: "inline-block", border: "1px solid rgba(255,255,255,0.15)" }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#e6edf3" }}>{LABEL_NAMES[trueLabel]}</span>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "#8b949e" }}>Pred:</span>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: LABEL_COLORS[inspected.predicted], display: "inline-block", border: "1px solid rgba(255,255,255,0.15)" }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: inspected.predicted === trueLabel ? "#4caf50" : "#ff6b6b" }}>
+                  {LABEL_NAMES[inspected.predicted]} {inspected.predicted === trueLabel ? "✓" : "✗"}
+                </span>
+              </div>
+            </div>
+
+            {/* Key insight callout */}
+            <div style={{ fontSize: 10, padding: "6px 10px", borderRadius: 6, marginBottom: 10,
+              background: method === "majority" ? "rgba(255,255,255,0.04)" : method === "global" ? "rgba(255,180,50,0.08)" : "rgba(100,200,255,0.08)",
+              border: method === "majority" ? "1px solid rgba(255,255,255,0.06)" : method === "global" ? "1px solid rgba(255,180,50,0.2)" : "1px solid rgba(100,200,255,0.2)",
+              color: "#8b949e", lineHeight: 1.5,
+            }}>
+              {method === "majority" && "All weights = 1. Pure vote counting."}
+              {method === "global" && <>
+                <span style={{ color: "#ffb432" }}>Global weights</span> — computed once from whole-image similarity. <strong style={{ color: "#e6edf3" }}>Same weights at every voxel.</strong> Click another voxel to verify.
+              </>}
+              {method === "local" && <>
+                <span style={{ color: "#64c8ff" }}>Local weights</span> — computed from a 7×7 patch around <em>this</em> voxel. <strong style={{ color: "#e6edf3" }}>Weights change at each voxel.</strong> Click elsewhere to see them shift.
+              </>}
+            </div>
+
+            <div style={{ fontSize: 10, color: "#58a6ff", fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Per-Atlas Vote</div>
+            {inspected.weights.map((w, i) => {
+              const maxW = Math.max(...inspected.weights.map(x => x.weight));
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, marginBottom: 3 }}>
+                  <span style={{ width: 32, color: "#8b949e", flexShrink: 0 }}>A{w.atlas + 1}</span>
+                  <span style={{ width: 10, height: 10, borderRadius: 2, background: LABEL_COLORS[w.label], flexShrink: 0, border: "1px solid rgba(255,255,255,0.1)" }} />
+                  <div style={{ flex: 1, height: 12, background: "rgba(255,255,255,0.06)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${(w.weight / maxW) * 100}%`, height: "100%", borderRadius: 3, background: w.label === trueLabel ? "#4caf50" : "#ff6b6b", opacity: 0.8, transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ width: 30, textAlign: "right", color: "#8b949e", fontSize: 10, fontFamily: "monospace" }}>{w.weight.toFixed(2)}</span>
+                </div>
+              );
+            })}
+
+            <div style={{ fontSize: 10, color: "#58a6ff", fontWeight: 700, marginTop: 10, textTransform: "uppercase", letterSpacing: 1 }}>Aggregated Scores</div>
+            <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+              {inspected.votes.map((v, i) => v > 0.01 ? (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, padding: "2px 6px", borderRadius: 5, background: i === inspected.predicted ? "rgba(88,166,255,0.15)" : "rgba(255,255,255,0.04)", border: i === inspected.predicted ? "1px solid rgba(88,166,255,0.3)" : "1px solid transparent" }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 2, background: LABEL_COLORS[i] }} />
+                  <span style={{ color: "#e6edf3", fontFamily: "monospace" }}>{v.toFixed(2)}</span>
+                </div>
+              ) : null)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 14, border: "1px solid rgba(255,255,255,0.07)" }}>
+        <SectionLabel>Dice — {numAtlases} atlases, {METHODS.find(m => m.id === method).name}</SectionLabel>
+        <div style={{ display: "flex", gap: 14 }}>
+          {[1, 2, 3].map((c, i) => <DiceBar key={c} label={LABEL_NAMES[c]} color={LABEL_COLORS[c]} value={dice[i]} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB 3: PATCH-BASED NLM
+// ═══════════════════════════════════════════════════════════════════
+
+function PatchTab() {
+  const target = useMemo(() => generateRealisticBrain(GRID, GRID, TARGET_CONFIG), []);
+  const atlases = useMemo(() => ATLAS_CONFIGS.slice(0, 5).map(c => generateRealisticBrain(GRID, GRID, c)), []);
+  const [patchSize, setPatchSize] = useState(5);
+  const [beta, setBeta] = useState(1.0);
+  const [searchRadius, setSearchRadius] = useState(5);
+  const [selectedVoxel, setSelectedVoxel] = useState({ px: 32, py: 28 });
+
+  const nlm = useMemo(() => {
+    const { px, py } = selectedVoxel;
+    const half = Math.floor(patchSize / 2);
+    const N = patchSize * patchSize;
+    const sigma2 = 0.008;
+
+    const tPatch = [];
+    for (let dy = -half; dy <= half; dy++)
+      for (let dx = -half; dx <= half; dx++) {
+        const x = Math.min(GRID - 1, Math.max(0, px + dx));
+        const y = Math.min(GRID - 1, Math.max(0, py + dy));
+        tPatch.push(target.data[y * GRID + x]);
+      }
+
+    const matches = [];
+    const weightMaps = atlases.map(() => new Float32Array(GRID * GRID));
+
+    for (let ai = 0; ai < atlases.length; ai++) {
+      const atlas = atlases[ai];
+      for (let sy = Math.max(half, py - searchRadius); sy <= Math.min(GRID - 1 - half, py + searchRadius); sy++) {
+        for (let sx = Math.max(half, px - searchRadius); sx <= Math.min(GRID - 1 - half, px + searchRadius); sx++) {
+          let dist2 = 0;
+          const aPatch = [];
+          let pidx = 0;
+          for (let dy = -half; dy <= half; dy++)
+            for (let dx = -half; dx <= half; dx++) {
+              const x2 = Math.min(GRID - 1, Math.max(0, sx + dx));
+              const y2 = Math.min(GRID - 1, Math.max(0, sy + dy));
+              const v = atlas.data[y2 * GRID + x2];
+              aPatch.push(v);
+              const diff = tPatch[pidx] - v;
+              dist2 += diff * diff;
+              pidx++;
+            }
+          const w = Math.exp(-dist2 / (2 * N * beta * sigma2 + 1e-10));
+          weightMaps[ai][sy * GRID + sx] = w;
+          matches.push({ ai, x: sx, y: sy, w, label: atlas.labels[sy * GRID + sx], dist2: dist2 / N, patch: aPatch });
+        }
+      }
+    }
+
+    matches.sort((a, b) => b.w - a.w);
+    const labelScores = [0, 0, 0, 0];
+    let totalW = 0;
+    for (const m of matches) { labelScores[m.label] += m.w; totalW += m.w; }
+    const probs = labelScores.map(s => s / (totalW + 1e-10));
+    const est = probs.indexOf(Math.max(...probs));
+    const trueLabel = target.labels[py * GRID + px];
+    return { matches, probs, est, trueLabel, tPatch, weightMaps, totalW, labelScores };
+  }, [selectedVoxel, patchSize, beta, searchRadius, target, atlases]);
+
+  const top = nlm.matches.slice(0, 10);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <InfoBox>
+        <p style={{ color: "#8b949e", fontSize: 13, margin: 0 }}>
+          <strong style={{ color: "#e6edf3" }}>Patch-based segmentation</strong> uses non-local means (NLM) to assign labels.
+          For each voxel, a surrounding patch is compared to atlas patches with weight{" "}
+          <code style={{ background: "rgba(255,255,255,0.08)", padding: "1px 5px", borderRadius: 3, fontSize: 11, fontFamily: "monospace" }}>
+            w = exp(−‖P_t − P_a‖² / 2Nβσ²)
+          </code>. <strong style={{ color: "#e6edf3" }}>Click the target image</strong> to explore any voxel.
+        </p>
+      </InfoBox>
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        {/* Parameters */}
+        <div style={{ minWidth: 190, maxWidth: 200 }}>
+          <SectionLabel>Parameters</SectionLabel>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 3 }}>Patch size: <strong style={{ color: "#e6edf3" }}>{patchSize}×{patchSize}</strong></div>
+            <input type="range" min={3} max={9} step={2} value={patchSize} onChange={(e) => setPatchSize(+e.target.value)} style={{ width: "100%", accentColor: "#58a6ff" }} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 3 }}>β (bandwidth): <strong style={{ color: "#e6edf3" }}>{beta.toFixed(2)}</strong></div>
+            <input type="range" min={0.1} max={5} step={0.1} value={beta} onChange={(e) => setBeta(+e.target.value)} style={{ width: "100%", accentColor: "#58a6ff" }} />
+            <div style={{ fontSize: 9, color: "#6e7681", marginTop: 2 }}>Low β → few patches dominate · High β → many contribute</div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "#8b949e", marginBottom: 3 }}>Search radius: <strong style={{ color: "#e6edf3" }}>{searchRadius}px</strong></div>
+            <input type="range" min={2} max={15} value={searchRadius} onChange={(e) => setSearchRadius(+e.target.value)} style={{ width: "100%", accentColor: "#58a6ff" }} />
+          </div>
+        </div>
+
+        {/* Target image */}
+        <BrainCanvas slice={target} mode="intensity" highlight={selectedVoxel} patchSize={patchSize}
+          onClick={(x, y) => setSelectedVoxel({ px: x, py: y })} size={230} label="Target (click to select)" />
+
+        {/* NLM Computation Breakdown */}
+        <div style={{ flex: "1 1 340px", background: "rgba(88,166,255,0.04)", borderRadius: 12, padding: 16, border: "1px solid rgba(88,166,255,0.15)", minWidth: 320 }}>
+          <SectionLabel>NLM Computation at ({selectedVoxel.px}, {selectedVoxel.py})</SectionLabel>
+
+          <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 14 }}>
+            <div>
+              <div style={{ fontSize: 10, color: "#ff4060", fontWeight: 700, marginBottom: 4 }}>① Target Patch</div>
+              <MiniPatch patch={nlm.tPatch} size={patchSize} border="#ff4060" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: "#58a6ff", fontWeight: 700, marginBottom: 4 }}>② Patch Search</div>
+              <div style={{ fontSize: 10, color: "#8b949e", lineHeight: 1.6 }}>
+                Search {searchRadius}px radius across {atlases.length} atlases → <strong style={{ color: "#e6edf3" }}>{nlm.matches.length}</strong> candidate patches compared.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 10, color: "#58a6ff", fontWeight: 700, marginBottom: 6 }}>③ Top Matches (by weight)</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+            {top.map((m, i) => (
+              <div key={i} style={{ textAlign: "center", background: "rgba(255,255,255,0.03)", borderRadius: 6, padding: 4, border: "1px solid rgba(255,255,255,0.06)", minWidth: 48 }}>
+                <MiniPatch patch={m.patch} size={patchSize} border={LABEL_COLORS[m.label]} />
+                <div style={{ fontSize: 8, color: "#8b949e", marginTop: 2 }}>A{m.ai + 1}</div>
+                <div style={{ fontSize: 8, color: "#e6edf3", fontFamily: "monospace" }}>w={m.w.toFixed(3)}</div>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: LABEL_COLORS[m.label], margin: "2px auto 0", border: "1px solid rgba(255,255,255,0.1)" }} />
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 10, color: "#58a6ff", fontWeight: 700, marginBottom: 6 }}>④ Weighted Label Fusion</div>
+          <div style={{ background: "rgba(0,0,0,0.2)", borderRadius: 8, padding: 10, fontFamily: "monospace", fontSize: 11 }}>
+            <div style={{ color: "#6e7681", marginBottom: 6, fontSize: 10 }}>L(x) = argmax_l  Σ w_i · δ(label_i = l) / Σ w_i</div>
+            {LABEL_NAMES.map((name, l) => {
+              const prob = nlm.probs[l];
+              if (prob < 0.001) return null;
+              return (
+                <div key={l} style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: LABEL_COLORS[l], flexShrink: 0, border: "1px solid rgba(255,255,255,0.1)" }} />
+                  <span style={{ width: 60, color: "#8b949e", fontSize: 10, fontFamily: "inherit" }}>{name}</span>
+                  <span style={{ color: "#e6edf3", fontSize: 10, width: 50 }}>Σw={nlm.labelScores[l].toFixed(2)}</span>
+                  <div style={{ flex: 1, height: 14, background: "rgba(255,255,255,0.06)", borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ width: `${prob * 100}%`, height: "100%", borderRadius: 4, background: l === nlm.est ? "#58a6ff" : "rgba(255,255,255,0.15)", transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ width: 36, textAlign: "right", color: l === nlm.est ? "#58a6ff" : "#8b949e", fontWeight: l === nlm.est ? 700 : 400, fontSize: 11 }}>
+                    {(prob * 100).toFixed(1)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{
+            marginTop: 10, padding: "8px 12px", borderRadius: 8, display: "flex", alignItems: "center", gap: 8,
+            background: nlm.est === nlm.trueLabel ? "rgba(76,175,80,0.12)" : "rgba(255,107,107,0.12)",
+            border: nlm.est === nlm.trueLabel ? "1px solid rgba(76,175,80,0.3)" : "1px solid rgba(255,107,107,0.3)",
+          }}>
+            <div style={{ fontSize: 12, color: "#e6edf3" }}>
+              <strong>Pred:</strong> {LABEL_NAMES[nlm.est]} · <strong>True:</strong> {LABEL_NAMES[nlm.trueLabel]}
+              {nlm.est === nlm.trueLabel ? <span style={{ color: "#4caf50" }}> ✓</span> : <span style={{ color: "#ff6b6b" }}> ✗</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 16, border: "1px solid rgba(255,255,255,0.07)" }}>
+        <SectionLabel>NLM Weight Heatmaps per Atlas</SectionLabel>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {nlm.weightMaps.map((wm, i) => <HeatmapCanvas key={i} weights={wm} W={GRID} H={GRID} size={120} label={`Atlas ${i + 1}`} />)}
+        </div>
+        <div style={{ fontSize: 10, color: "#6e7681", marginTop: 8 }}>
+          Bright = high weight (strong patch match). Only the search neighborhood shows non-zero values.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════════
+
+const TABS = [
+  { id: "atlas", name: "Atlas-Based", icon: "◎" },
+  { id: "fusion", name: "Multi-Atlas Fusion", icon: "⊕" },
+  { id: "patch", name: "Patch-Based NLM", icon: "▦" },
+];
+
+function App() {
+  const [tab, setTab] = useState("atlas");
+  return (
+    <div style={{ fontFamily: "'IBM Plex Sans', 'SF Pro Text', system-ui, sans-serif", color: "#e6edf3", minHeight: "100vh", padding: "20px 16px", maxWidth: 1120, margin: "0 auto" }}>
+      <div style={{ marginBottom: 22 }}>
+        <div style={{ fontSize: 9, textTransform: "uppercase", letterSpacing: 4, color: "#58a6ff", fontWeight: 700, marginBottom: 3 }}>Interactive Demo</div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, background: "linear-gradient(135deg,#58a6ff,#bc8cff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          (Multi)Atlas & Patch-Based Segmentation
+        </h1>
+        <p style={{ fontSize: 12, color: "#6e7681", margin: "4px 0 0 0", fontFamily: "monospace" }}>M. Reyes · University of Bern & · ETHZ</p>
+      </div>
+      <div style={{ display: "flex", gap: 2, marginBottom: 20, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{
+            background: tab === t.id ? "rgba(88,166,255,0.08)" : "transparent",
+            border: "none", borderBottom: tab === t.id ? "2px solid #58a6ff" : "2px solid transparent",
+            color: tab === t.id ? "#58a6ff" : "#6e7681",
+            padding: "8px 16px", fontSize: 12, fontWeight: tab === t.id ? 700 : 500,
+            cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 5, transition: "all 0.2s",
+          }}>
+            <span style={{ fontSize: 14 }}>{t.icon}</span>{t.name}
+          </button>
+        ))}
+      </div>
+      <div style={{ minHeight: 400 }}>
+        {tab === "atlas" && <AtlasTab />}
+        {tab === "fusion" && <FusionTab />}
+        {tab === "patch" && <PatchTab />}
+      </div>
+      <div style={{ marginTop: 28, padding: "12px 0", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 10, color: "#484f58", textAlign: "center" }}>
+        Brain slices are procedurally generated with cortical folds, ventricles, deep gray matter structures, and inter-subject variability. Real atlas-based segmentation uses 3D clinical MRI volumes.
+      </div>
+    </div>
+  );
+}
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
