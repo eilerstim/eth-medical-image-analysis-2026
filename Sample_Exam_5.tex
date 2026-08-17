@@ -1,0 +1,484 @@
+%% Sample Exam 5 -- Medical Image Analysis (ETH Zurich, 2026)
+%%
+%% Written in the style of Example_Exam_with_Answers.pdf.
+%%
+%% Compile the version WITH solutions:      pdflatex "\def\withanswers{}\input{Sample_Exam_5.tex}"
+%% Compile the blank version (no answers):  pdflatex Sample_Exam_5.tex
+%%
+\ifx\withanswers\undefined
+  \documentclass[11pt]{exam}
+\else
+  \documentclass[11pt,answers]{exam}
+\fi
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------- page style
+\pagestyle{foot}
+\firstpageheader{}{}{}
+\firstpagefooter{}{}{}
+\runningheader{}{}{}
+\runningfooter{}{}{Page \thepage}
+
+% -------------------------------------------------------------- multiplechoice
+% Reproduce the "(A) (B) (C) ..." labelling of the original exam.
+\renewcommand{\choicelabel}{$\bigcirc$~(\Alph{choice})}
+
+% ---------------------------------------------------------- true/false macros
+% \TFT -> the statement is TRUE, \TFF -> the statement is FALSE.
+% In the answer version the correct word is set in capitals and bold.
+\newcommand{\TFT}{\ifprintanswers\textbf{TRUE}\hspace{1.1em}False\else True\hspace{1.1em}False\fi}
+\newcommand{\TFF}{True\hspace{1.1em}\ifprintanswers\textbf{FALSE}\else False\fi}
+
+% ------------------------------------------------------------- writing space
+% Reserves room to write in the blank version; collapses in the answer version.
+\newcommand{\answerspace}[1]{\ifprintanswers\else\vspace{#1}\fi}
+
+\begin{document}
+
+% ------------------------------------------------------------------ title page
+\begin{center}
+  {\LARGE\bfseries Sample Exam}\\[2mm]
+  {\Large Medical Image Analysis}\\[6mm]
+\end{center}
+
+\vspace{4mm}
+\noindent Student name:\hrulefill
+
+\vspace{6mm}
+\noindent Immatriculation number:\hrulefill
+
+\vspace{10mm}
+
+\begin{center}
+  {\large\bfseries Exam Questions}
+\end{center}
+
+\noindent\textbf{Note:} All the questions have equal weight.
+
+\vspace{4mm}
+
+\begin{questions}
+
+% =============================================================== Question 1 ===
+\question
+A measurement taken in an image corresponds to a real-world quantity only through the voxel size.
+An anatomical structure is segmented in two scans of the same patient, acquired one year apart on
+different scanners.
+
+\begin{parts}
+
+  \part In the \emph{baseline} scan the voxel size is $0.8 \times 0.8 \times 3.0$~mm$^3$ and the
+  segmentation contains $4\,500$ voxels. What is the volume of the structure, in mm$^3$ and in
+  cm$^3$?
+
+  \begin{solution}
+    Answer: $8\,640$~mm$^3$ $= 8.64$~cm$^3$.
+
+    One voxel occupies $0.8 \times 0.8 \times 3.0 = 1.92$~mm$^3$, so
+    $4\,500 \times 1.92 = 8\,640$~mm$^3$. There are $1\,000$~mm$^3$ in a cm$^3$.
+  \end{solution}
+\answerspace{2.4cm}
+
+  \part In the \emph{follow-up} scan the voxel size is $0.5 \times 0.5 \times 2.0$~mm$^3$ and the
+  segmentation contains $16\,000$ voxels. What is the volume now, and has the structure grown?
+
+  \begin{solution}
+    Answer: $8\,000$~mm$^3$ $= 8.00$~cm$^3$. The structure has \emph{not} grown --- it has shrunk
+    slightly.
+
+    A voxel now occupies $0.5 \times 0.5 \times 2.0 = 0.5$~mm$^3$, so
+    $16\,000 \times 0.5 = 8\,000$~mm$^3$. Compared with the baseline this is a change of
+    $(8\,000 - 8\,640)/8\,640 = -7.4\%$.
+  \end{solution}
+\answerspace{2.8cm}
+
+  \part What would you have concluded if you had compared the raw voxel counts instead, and what
+  does this tell you about comparing measurements across acquisitions?
+
+  \begin{solution}
+    Answer: you would have concluded that the structure grew by a factor of
+    $16\,000 / 4\,500 \approx 3.6$, i.e.\ by more than $250\%$ --- the opposite of the truth, and
+    wrong by a wide margin.
+
+    A voxel count is not a measurement of anything physical. It becomes one only after being
+    multiplied by the voxel volume, and the voxel volume differs between the two acquisitions here
+    by almost a factor of four. Whenever measurements from different images are compared ---
+    longitudinal studies, population statistics, normative distributions --- the real-world voxel
+    size has to be taken into account, either by converting to physical units as here, or by
+    resampling the images to a common voxel size first.
+  \end{solution}
+\answerspace{4.2cm}
+
+\end{parts}
+
+% =============================================================== Question 2 ===
+\question
+Deep learning libraries provide a layer called ``convolution'', but the operation they implement is
+usually the closely related cross-correlation. For an image $I$ and a kernel $k$, which of the two
+expressions below is the \emph{convolution} $I * k$? Please circle the correct choice.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle \sum_m \sum_n I(x-m,\, y-n)\, k(m,n)$
+  \hspace{2.0cm}
+  $\displaystyle \sum_m \sum_n I(x+m,\, y+n)\, k(m,n)$
+\end{center}
+\vspace{2mm}
+
+\begin{solution}
+  Answer: Left one.
+
+  Convolution reverses one of the two functions before shifting it, which is what the minus signs
+  encode; the right-hand expression has no flip and is the cross-correlation. The only thing the
+  flip buys is commutativity, $I * k = k * I$, which is of little practical use in a neural network
+  --- and since the kernel weights are learned anyway, a flipped kernel is just as learnable as an
+  unflipped one. That is why most libraries implement cross-correlation and call it convolution,
+  and why the distinction almost never matters in practice. It does matter when you take a kernel
+  from a signal-processing textbook and expect it to behave identically.
+\end{solution}
+\answerspace{1.5cm}
+
+% =============================================================== Question 3 ===
+\question
+A great many methods in this course have the same shape: a data term measuring agreement with the
+observation, plus a regularisation term expressing which solutions are plausible,
+
+\vspace{1mm}
+\begin{center}
+  $\displaystyle \min_\theta\ D(\text{data};\theta) \; + \; \lambda\, R(\theta).$
+\end{center}
+\vspace{1mm}
+
+\noindent For each of the three methods below, please state what plays the role of the data term
+and what plays the role of the regulariser.
+
+\begin{parts}
+  \part Total variation denoising.
+  \begin{solution}
+    Answer: data term $D = \|I - J\|_2^2$, the squared difference between the recovered image and
+    the noisy observation. Regulariser $R = \|I\|_{TV} = \int \|\nabla I\|\,dx$, the total
+    variation, which prefers images with minimal variation and therefore a piecewise-constant
+    tendency.
+  \end{solution}
+\answerspace{2.6cm}
+
+  \part Deformable intensity-based registration with linear-elastic regularisation.
+  \begin{solution}
+    Answer: data term $D = d(I,\, T_\theta \circ J)$, an intensity similarity metric such as the
+    sum of squared differences between the target and the warped moving image. Regulariser
+    $R = r(T_\theta^{-1})$, the elastic strain energy of the displacement field
+    $u$, built from the Cauchy strain tensor $V(u) = (\nabla u + \nabla u^T)/2$, which prefers
+    small, smooth deformations.
+  \end{solution}
+\answerspace{2.8cm}
+
+  \part MAP segmentation with a Potts / Ising Markov random field prior.
+  \begin{solution}
+    Answer: data term is the unary term
+    $\sum_x (I(x)-\mu_{c(x)})^T \Sigma^{-1}_{c(x)} (I(x)-\mu_{c(x)})$, i.e.\ the negative
+    log-likelihood of the intensity at each pixel under the class it was assigned. Regulariser is
+    the pairwise term $\lambda \sum_x \sum_{y \in G(x)} \delta(c(x) \neq c(y))$, which charges a
+    fixed penalty for every neighbouring pair of pixels carrying different labels and therefore
+    prefers spatially consistent labellings.
+  \end{solution}
+\answerspace{3.0cm}
+\end{parts}
+
+% =============================================================== Question 4 ===
+\question
+Please indicate whether the statement is true or false by circling the correct choice in each of
+the following.
+
+\begin{parts}
+  \part \TFT\ \ Convolution is translation equivariant but not translation invariant.
+
+  \part \TFF\ \ A ``same'' (padded) convolution with a $k \times k$ kernel and stride 1 reduces
+  each spatial dimension by $k-1$.
+
+  \part \TFF\ \ Fully connected layers are naturally translation invariant, which is why they are
+  placed at the end of a classification network.
+
+  \part \TFT\ \ For a recognition task two images differing only by a translation should give
+  identical outputs, whereas for segmentation they should give the same output at a translated
+  location.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- and the distinction is worth being precise about. Equivariance means
+  $f(T(x)) = T(f(x))$: translate the input and the feature map translates with it. Invariance would
+  mean $f(T(x)) = f(x)$, the output not changing at all, and convolution does \emph{not} give that.
+  Pooling is what contributes a partial, local invariance.
+
+  (b) FALSE --- that is the \emph{valid} convolution, $N_l = N_{l-1} - k_1 + 1$. The whole purpose
+  of ``same'' convolution is to pad the boundary so the output has the same size as the input,
+  $N_l = N_{l-1}$.
+
+  (c) FALSE --- exactly backwards. Translation invariance is \emph{not} native to fully connected
+  layers: translating the object produces completely different hidden activations, because every
+  input position has its own separate weight. One can teach an FC network some invariance by
+  augmenting the training data with random translations, but the lecture's verdict on that is
+  ``not the most elegant way''.
+
+  (d) TRUE --- and this is why the two properties are both wanted, in different places.
+  Recognition wants invariance: a tumour is a tumour wherever it sits. Segmentation and detection
+  want equivariance: move the structure and the output label map should move with it.
+\end{solution}
+
+% =============================================================== Question 5 ===
+\question
+A multi-head self-attention block has input dimension $D = 512$ and $H = 8$ heads, with per-head
+dimensions $D_K = D_Q = D_V = 64$. Counting the projection matrices $W_{K_h}, W_{Q_h}, W_{V_h}$ of
+every head together with the output projection $W_0$, and ignoring all biases, how many parameters
+does the block have?
+
+\begin{solution}
+  Answer: $\mathbf{1\,048\,576}$ parameters.
+
+  Per head, each of $W_{K_h}, W_{Q_h}, W_{V_h}$ has shape $D \times 64 = 512 \times 64 = 32\,768$
+  entries, so a head contributes $3 \times 32\,768 = 98\,304$. Over 8 heads:
+  $8 \times 98\,304 = 786\,432$.
+
+  The heads are concatenated, giving $H \cdot D_V = 8 \times 64 = 512$ features, which the output
+  projection maps back to $D$: $W_0 \in \mathbb{R}^{512 \times 512} = 262\,144$ entries.
+
+  Total: $786\,432 + 262\,144 = 1\,048\,576$. Note that with $H \cdot D_V = D$, which is the usual
+  choice, this is exactly $4D^2$ --- the cost of the block is quadratic in the model width and does
+  not depend on the number of heads.
+\end{solution}
+\answerspace{4.0cm}
+
+% =============================================================== Question 6 ===
+\question
+Once a Markov random field prior is added, segmentation can no longer be solved by deciding each
+pixel independently. Please explain briefly why exact inference becomes hard, and describe one
+approximate method presented in the lecture. You do not need to write down the equations.
+
+\begin{solution}
+  Answer: \emph{Why it is hard.} Without the MRF the posterior factorises over pixels, so each
+  pixel's label can be chosen independently and the answer is found in one pass. The pairwise term
+  couples neighbouring labels, so the posterior no longer factorises: the best label for a pixel
+  depends on its neighbours' labels, which depend on theirs, and so on across the whole image.
+  Computing the normalisation constant would require summing over every possible labelling of the
+  image, of which there are exponentially many, and exact energy minimisation with categorical
+  labels is NP-hard in 2D and above.
+
+  \emph{An approximate method --- Gibbs sampling.} Sampling from the full posterior is infeasible,
+  but sampling from the conditional distribution of a \emph{single} voxel given all the others is
+  easy, because that conditional only involves the voxel's likelihood and its immediate
+  neighbours, and normalising it means summing over the few possible labels of one voxel. So:
+  initialise the labelling (for instance from the likelihood alone), then repeatedly visit each
+  voxel and re-sample its label from that conditional. It is simple to implement and effective, but
+  it is stochastic --- every run gives a different result --- the outcome depends on the
+  initialisation and the parameters, and convergence can be slow.
+
+  Iterated conditional modes and graph cuts are the other standard alternatives.
+\end{solution}
+\answerspace{7.5cm}
+
+% =============================================================== Question 7 ===
+\question
+Which of the following statements on the differences between Active Shape Models (ASM) and Active
+Appearance Models (AAM) is \textbf{inaccurate}?
+
+\begin{choices}
+  \choice ASM searches \emph{around} the current position, sampling along the surface normals of
+  the model points, while AAM evaluates its fit \emph{at} the current position.
+  \choice ASM minimises the distance between the model points and the corresponding points found
+  in the image, whereas AAM minimises the difference between a synthesised model image and the
+  target image.
+  \choice AAM usually has a larger capture range than ASM, because the additional texture
+  information gives it more to lock onto when the initialisation is poor.
+  \choice AAM builds its texture model by warping every training image to the mean shape before
+  sampling and normalising the intensities.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  It is \textbf{ASM} that has the larger capture range, and (A) explains why: by sampling along the
+  normals it actively looks a certain distance away from where the model currently sits, so it can
+  find a boundary that is not underneath the model yet. AAM only compares its synthesised
+  appearance with the image at the current position, so if the initialisation is too far off there
+  is nothing to pull it in the right direction. ASM is also the faster of the two and locates
+  feature points more accurately; what AAM buys in exchange is a better match to the image texture.
+\end{solution}
+
+% =============================================================== Question 8 ===
+\question
+Which of the following statements on non-linear transformation models is \textbf{incorrect}?
+
+\begin{choices}
+  \choice A naive parameterisation with one independent displacement vector per voxel can generate
+  transformations that are physically implausible and even change the topology of the anatomy.
+  \choice In a flow model each point follows the ordinary differential equation
+  $dx/dt = v(x,t)$, and if the velocity field is smooth the resulting transformation is guaranteed
+  to be a diffeomorphism.
+  \choice A stationary velocity field has more parameters than a time-dependent one, which is why
+  the scaling-and-squaring scheme is needed to make it tractable.
+  \choice The diffusion model requires the displacement field to satisfy the Poisson equation,
+  $\Delta u(x') + F(x') = 0$.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  A stationary velocity field has \emph{fewer} parameters, not more: dropping the time dependence
+  means storing one velocity vector per voxel instead of one per voxel \emph{per time point}. And
+  scaling-and-squaring is not a workaround for a cost problem --- it is an efficient integration
+  scheme that becomes available precisely \emph{because} the field is stationary. Both halves of
+  the statement are inverted.
+
+  The value of (B) is worth remembering separately: a diffeomorphism is smooth, invertible and has
+  a smooth inverse, so a transformation built this way physically cannot tear or fold tissue. This
+  is the guarantee that the naive parameterisation in (A) lacks, and it is the foundation of LDDMM.
+\end{solution}
+
+% =============================================================== Question 9 ===
+\question
+Which of the following statements on intensity normalisation is \textbf{incorrect}?
+
+\begin{choices}
+  \choice Min-max normalisation and matching the mean and standard deviation are both linear
+  mappings of the intensities, and neither can change the contrast of an image.
+  \choice Nyul's method matches the \emph{locations} of landmarks of the histograms, which aligns
+  the distributions without making the two histograms identical.
+  \choice Histogram matching exploits the spatial correlation between neighbouring pixels, which is
+  what makes it robust to differences in the size of the imaged object.
+  \choice Intensity variation is a particular problem for MRI because it has no absolute intensity
+  scale, unlike CT where intensities are expressed in Hounsfield units.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  Both halves are wrong. Histogram matching knows nothing at all about image content: it treats
+  every pixel as an independent sample and uses \emph{no} spatial information or correlation
+  between neighbours --- which is why matching image \emph{gradients} has been proposed as a
+  remedy. And differences in object size are a genuine problem for it rather than something it is
+  robust to: if one image contains much more of a given tissue than the other, a perfect histogram
+  match is not even desirable, and mode matching is preferred.
+
+  The other caveat worth knowing alongside this one is pathology: a large tumour changes the
+  histogram, so matching a pathological image to a healthy one is hard, and robust statistics or
+  outlier detection help.
+\end{solution}
+
+% ============================================================== Question 10 ===
+\question
+In patch-based label fusion the label at a target voxel is decided by
+$L(x) = \arg\max_l \sum_i w_i\, \delta(\text{label}_i = l) \,/\, \sum_i w_i$, where the weights
+$w_i$ come from the similarity between the patch around the target voxel and patches taken from
+the atlas library. Which of the following statements about this scheme is correct?
+
+\begin{choices}
+  \choice The weights are computed from the spatial distance between the target voxel and the atlas
+  voxel, not from the image content.
+  \choice Only a coarse rigid or affine registration of the atlases is required, because
+  correspondence is re-established locally by comparing patches inside a search window around each
+  voxel.
+  \choice The scheme requires exactly one atlas; with several atlases the weights no longer sum to
+  one and the decision becomes ill-defined.
+  \choice Because the weighting is borrowed from non-local means, the scheme can only be applied to
+  denoising and not to the propagation of labels.
+  \choice The search window has to cover the whole image, since restricting it would bias the
+  weights.
+\end{choices}
+
+\begin{solution}
+  Answer: B.
+
+  This is the point of patch-based methods. In classical multi-atlas segmentation the
+  correspondence between the atlas and the patient is whatever the registration says it is, so the
+  result is only as good as a non-linear registration --- which is expensive and can fail. Patch
+  matching replaces that: after a coarse alignment, each target voxel looks around a local search
+  window for atlas patches that actually resemble its own neighbourhood, and takes their labels
+  weighted by that resemblance. Correspondence is decided by image content at the point of use
+  rather than by a global transformation computed in advance.
+
+  (E) is the reverse of the truth: restricting the search window is standard practice, for cost, and
+  it also encodes the sensible prior that the correct correspondence is somewhere nearby.
+\end{solution}
+
+% ============================================================== Question 11 ===
+\question
+A U-Net for segmentation takes $128 \times 128$ inputs with one channel. All convolutions are
+$3 \times 3$ with ``same'' padding; each encoder level ends with $2 \times 2$ max pooling of stride
+2, and each decoder level begins by upsampling by a factor of 2. The encoder levels produce 32, 64
+and 128 channels respectively, and the bottleneck produces 256 channels. Each skip connection
+concatenates the encoder features onto the upsampled decoder features at the matching level. Circle
+True or False:
+
+\begin{parts}
+  \part \TFT\ \ The feature maps at the bottleneck have a spatial size of $16 \times 16$.
+
+  \part \TFF\ \ Because all convolutions use ``same'' padding, no spatial information is lost in
+  the encoder, and the skip connections are therefore redundant.
+
+  \part \TFT\ \ After upsampling the bottleneck to $32 \times 32$ and concatenating the skip
+  connection from the matching encoder level, the first decoder convolution at that level receives
+  $256 + 128 = 384$ input channels.
+
+  \part \TFF\ \ A $3 \times 3$ convolution mapping those 384 input channels to 128 output channels
+  has $3 \cdot 3 \cdot 384 = 3\,456$ weights, excluding biases.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- three poolings, each halving: $128 \rightarrow 64 \rightarrow 32 \rightarrow 16$.
+  The ``same'' convolutions do not change the size, so only the pooling does.
+
+  (b) FALSE --- and this is the point of the architecture. It is the \emph{pooling}, not the
+  convolutions, that destroys spatial detail: by the bottleneck the feature maps are $16 \times 16$
+  and the fine boundary information is gone. The skip connections exist to carry the
+  high-resolution features from the encoder across to the decoder, so the network can combine the
+  large receptive field of the deep layers with the spatial precision of the shallow ones.
+
+  (c) TRUE --- concatenation adds the channel counts: 256 upsampled from the bottleneck plus the
+  128 arriving through the skip connection.
+
+  (d) FALSE --- the count leaves out the output channels. A convolution kernel connecting every
+  input channel to every output channel has $k_1 \cdot k_2 \cdot C_{in} \cdot C_{out}$ weights, so
+  the correct number is $3 \cdot 3 \cdot 384 \cdot 128 = 442\,368$ --- 128 times the stated figure.
+  Note also that this is where much of a U-Net's parameter budget goes: the concatenation makes the
+  decoder convolutions wide.
+\end{solution}
+
+% ============================================================== Question 12 ===
+\question
+Which of the following statements on interpretability and its uses are correct (multiple answers
+are possible)?
+
+\begin{choices}
+  \choice Saliency maps change over the course of training, and can be used as a kind of
+  fingerprint of how a model responds to its inputs.
+  \choice In interpretability-guided active learning, a sample is treated as informative when the
+  model appears to struggle with it; easy samples tend to produce clean, focused saliency.
+  \choice A model-agnostic method such as LIME explains a prediction by fitting a simpler,
+  interpretable model that approximates the classifier in a neighbourhood of the input, weighted by
+  a proximity measure.
+  \choice Class-prototype maximisation returns the image from the training set that most strongly
+  activates a given class.
+  \choice Grad-CAM can be applied without any access to the internals of the model, since it only
+  requires the class scores.
+\end{choices}
+
+\begin{solution}
+  Answer: (A), (B) and (C) are correct.
+
+  (D) misdescribes the method. Class-prototype maximisation performs gradient \emph{ascent on the
+  input} to synthesise a pattern that maximises a class activation; the result is not a training
+  image and indeed is not necessarily a realistic image at all. Regularising it with a generative
+  prior is what makes the synthesised inputs look natural.
+
+  (E) puts Grad-CAM on the wrong side of the taxonomy. It is a \emph{gradient}-based method, and it
+  needs the gradients of the class score with respect to the convolutional feature maps --- so it
+  requires access to the internals and is a white-box method. LIME is the model-agnostic,
+  black-box one.
+\end{solution}
+
+\end{questions}
+
+\end{document}

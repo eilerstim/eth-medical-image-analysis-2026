@@ -1,0 +1,481 @@
+%% Sample Exam 4 -- Medical Image Analysis (ETH Zurich, 2026)
+%%
+%% Written in the style of Example_Exam_with_Answers.pdf.
+%%
+%% Compile the version WITH solutions:      pdflatex "\def\withanswers{}\input{Sample_Exam_4.tex}"
+%% Compile the blank version (no answers):  pdflatex Sample_Exam_4.tex
+%%
+\ifx\withanswers\undefined
+  \documentclass[11pt]{exam}
+\else
+  \documentclass[11pt,answers]{exam}
+\fi
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------- page style
+\pagestyle{foot}
+\firstpageheader{}{}{}
+\firstpagefooter{}{}{}
+\runningheader{}{}{}
+\runningfooter{}{}{Page \thepage}
+
+% -------------------------------------------------------------- multiplechoice
+% Reproduce the "(A) (B) (C) ..." labelling of the original exam.
+\renewcommand{\choicelabel}{$\bigcirc$~(\Alph{choice})}
+
+% ---------------------------------------------------------- true/false macros
+% \TFT -> the statement is TRUE, \TFF -> the statement is FALSE.
+% In the answer version the correct word is set in capitals and bold.
+\newcommand{\TFT}{\ifprintanswers\textbf{TRUE}\hspace{1.1em}False\else True\hspace{1.1em}False\fi}
+\newcommand{\TFF}{True\hspace{1.1em}\ifprintanswers\textbf{FALSE}\else False\fi}
+
+% ------------------------------------------------------------- writing space
+% Reserves room to write in the blank version; collapses in the answer version.
+\newcommand{\answerspace}[1]{\ifprintanswers\else\vspace{#1}\fi}
+
+\begin{document}
+
+% ------------------------------------------------------------------ title page
+\begin{center}
+  {\LARGE\bfseries Sample Exam}\\[2mm]
+  {\Large Medical Image Analysis}\\[6mm]
+\end{center}
+
+\vspace{4mm}
+\noindent Student name:\hrulefill
+
+\vspace{6mm}
+\noindent Immatriculation number:\hrulefill
+
+\vspace{10mm}
+
+\begin{center}
+  {\large\bfseries Exam Questions}
+\end{center}
+
+\noindent\textbf{Note:} All the questions have equal weight.
+
+\vspace{4mm}
+
+\begin{questions}
+
+% =============================================================== Question 1 ===
+\question
+In 2D acquisitions the slices are acquired one after the other in a pre-defined direction and
+stacked into a 3D volume; in axial acquisitions the slices lie in the transverse plane. Voxel
+sizes are given as in-plane (two values) and through-plane (one value, the slice thickness), and
+the field-of-view is image size $\times$ voxel size. A \emph{dynamic} (4D) acquisition repeats the
+whole volume a number of times, one volume per time point.
+
+\vspace{1mm}
+\noindent An axial dynamic acquisition is performed with in-plane voxel size
+$1.5 \times 1.5$~mm$^2$ and 128 pixels in both directions, through-plane voxel size $5.0$~mm with
+30 slices, and 200 time points acquired at a temporal resolution of $2.5$~s per volume.
+
+\begin{parts}
+
+  \part What is the field-of-view in the head-to-toe, left-to-right and anterior-to-posterior
+  directions, respectively?
+
+  \begin{solution}
+    Answer: $150 \times 192 \times 192$~mm$^3$.
+
+    The through-plane direction of an axial acquisition is head-to-toe: $30 \times 5.0 = 150$~mm.
+    Both in-plane directions give $128 \times 1.5 = 192$~mm.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part How many voxels does the complete 4D data set contain, and how long does the acquisition
+  take?
+
+  \begin{solution}
+    Answer: $98\,304\,000$ voxels, and $500$~s $= 8$~min $20$~s.
+
+    Per volume: $128 \times 128 \times 30 = 491\,520$ voxels. Over 200 time points:
+    $491\,520 \times 200 = 98\,304\,000$. Duration: $200 \times 2.5 = 500$~s.
+  \end{solution}
+\answerspace{2.8cm}
+
+  \part A second scan of the same patient is acquired at $1.0 \times 1.0 \times 1.0$~mm$^3$
+  isotropic. To compare measurements between the two scans, which property of the images has to
+  be matched? Give the resize factors needed to bring one volume of the dynamic acquisition onto
+  that grid, and the resulting image size.
+
+  \begin{solution}
+    Answer: the \emph{voxel size} has to be matched (never the image size). Resize factors
+    $5.0 \times 1.5 \times 1.5$ along head-to-toe, left-to-right and anterior-to-posterior,
+    giving $150 \times 192 \times 192$~voxels.
+
+    The resize factor is the ratio of the old voxel size to the new one: $5.0/1.0 = 5.0$
+    head-to-toe and $1.5/1.0 = 1.5$ in the two in-plane directions. Applying these:
+    $30 \cdot 5.0 = 150$ and $128 \cdot 1.5 = 192$ twice. The field-of-view is unchanged, as it
+    must be --- only the sampling of it has changed.
+  \end{solution}
+\answerspace{4.2cm}
+
+\end{parts}
+
+% =============================================================== Question 2 ===
+\question
+Otsu's method selects a threshold for foreground--background separation automatically from the
+image histogram. Let $p_1, p_2$ be the numbers of pixels assigned to the two groups by a candidate
+threshold and $\sigma_1^2, \sigma_2^2$ the intensity variances within those groups. Which of the
+two criteria below is the one Otsu's method uses? Please circle the correct choice.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle \min_\tau\ \ p_1 \sigma_1^2 + p_2 \sigma_2^2$
+  \hspace{3.2cm}
+  $\displaystyle \max_\tau\ \ p_1 \sigma_1^2 + p_2 \sigma_2^2$
+\end{center}
+\vspace{2mm}
+
+\begin{solution}
+  Answer: Left one --- Otsu's method \emph{minimises} the intra-class variance.
+
+  A good threshold is one for which the two resulting groups are each as homogeneous as possible,
+  i.e.\ the spread of intensities \emph{within} a group is small. Maximising the same quantity
+  would deliberately choose the threshold that makes the two groups as internally inconsistent as
+  possible, which is the worst threshold available.
+\end{solution}
+\answerspace{1.5cm}
+
+% =============================================================== Question 3 ===
+\question
+Denoising can be written either as an energy minimisation or as a maximum-a-posteriori estimate.
+$J$ is the observed noisy image and $I$ the image we want to recover.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle \max_I\ \log P(J \mid I) + \log P(I)$
+  \hspace{2.0cm}
+  $\displaystyle \min_I\ \lambda\, D(I,J) + R(I)$
+\end{center}
+\vspace{2mm}
+
+\begin{parts}
+  \part Please indicate which term corresponds to which term in the two formulations.
+
+  \begin{solution}
+    Answer:
+    \begin{align*}
+      \log P(J \mid I) &\ \Longleftrightarrow\ \lambda\, D(I,J) &&\text{(data consistency)}\\[1mm]
+      \log P(I)        &\ \Longleftrightarrow\ R(I)             &&\text{(regularisation)}
+    \end{align*}
+
+    The likelihood encodes how the noise process works; the prior encodes which images are
+    considered plausible before any data is seen.
+  \end{solution}
+\answerspace{2.4cm}
+
+  \part For total variation denoising the data term is $D(I,J) = \|I - J\|_2^2$ and the
+  corresponding likelihood is Gaussian, $P(J \mid I) = \mathcal{N}(J;\, I,\, \sigma^2)$. What is
+  $\lambda$ in terms of $\sigma$, and what does that mean in words?
+
+  \begin{solution}
+    Answer: $\lambda = 1/(2\sigma^2)$.
+
+    Taking $-\log$ of a Gaussian likelihood gives $\|I-J\|_2^2 / (2\sigma^2)$ up to a constant, so
+    the weight in front of the data term \emph{is} the inverse noise variance. In words: the
+    weighting between data term and regulariser is not an arbitrary tuning knob --- it states how
+    much noise you believe is in the observation. A noisier image (large $\sigma$) means a small
+    $\lambda$, which trusts the data less and lets the prior smooth more.
+  \end{solution}
+\answerspace{3.0cm}
+\end{parts}
+
+% =============================================================== Question 4 ===
+\question
+Please indicate whether the statement is true or false by circling the correct choice in each of
+the following. $A$ denotes a binary image viewed as a set of pixels, $B$ a structural element, and
+$B_x$ the structural element translated to $x$.
+
+\begin{parts}
+  \part \TFT\ \ The dilation of $A$ by $B$ is the set of all $x$ for which $B_x$ has a non-empty
+  intersection with $A$.
+
+  \part \TFF\ \ The opening of $A$ by $B$ is a dilation followed by an erosion, and it fills small
+  gaps and holes.
+
+  \part \TFF\ \ Morphological operations are linear and shift-invariant.
+
+  \part \TFT\ \ Applying a median filter to a label map cannot introduce labels that were not
+  already present in it.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- $A \oplus B \triangleq \{x \mid B_x \cap A \neq \emptyset\}$. Erosion is the
+  stricter condition $A \ominus B \triangleq \{x \mid B_x \subseteq A\}$.
+
+  (b) FALSE --- both halves are wrong, and they are wrong together. \emph{Opening} is an erosion
+  followed by a dilation, $(A \ominus B) \oplus B$, and it removes small islands and protrusions.
+  \emph{Closing} is the other order, $(A \oplus B) \ominus B$, and that is the one that fills small
+  gaps and holes.
+
+  (c) FALSE --- they are shift-invariant, but they are emphatically \emph{non-linear}. That is
+  precisely why they can remove an isolated island without blurring the boundary of the structure
+  next to it, which no linear filter can do.
+
+  (d) TRUE --- the median of a set of values is always one of those values, so no new value can
+  appear. This is what makes median filtering a safe post-processing step on a segmentation: it
+  removes isolated mislabelled voxels without inventing a label that does not exist. Averaging
+  filters do not have this property.
+\end{solution}
+
+% =============================================================== Question 5 ===
+\question
+In landmark-based registration a set of corresponding landmark pairs is used to determine the
+transformation parameters. How many corresponding landmark pairs are needed for the system to be
+exactly determined when the transformation model is (i) a 2D affine transformation, and (ii) a 3D
+affine transformation? Explain the counting.
+
+\begin{solution}
+  Answer: (i) \textbf{3} landmark pairs in 2D, (ii) \textbf{4} landmark pairs in 3D.
+
+  A 2D affine transformation has 6 free parameters ($A \in \mathbb{R}^{2\times2}$ plus
+  $t \in \mathbb{R}^2$). Each landmark correspondence must match both coordinates of the point and
+  therefore contributes 2 scalar equations. Setting $2N = 6$ gives $N = 3$.
+
+  A 3D affine transformation has 12 free parameters ($A \in \mathbb{R}^{3\times3}$ plus
+  $t \in \mathbb{R}^3$), and each correspondence contributes 3 equations, so $3N = 12$ gives
+  $N = 4$.
+
+  With more landmarks than this the system becomes over-determined and is solved in the
+  least-squares sense: the landmarks themselves are then no longer aligned exactly, but the rest of
+  the image is aligned better --- which is usually what you actually want.
+\end{solution}
+\answerspace{4.0cm}
+
+% =============================================================== Question 6 ===
+\question
+Optimisation in image registration is difficult, and the objective function generally has local
+minima that a gradient-based optimiser can get stuck in. Please describe the two practical
+strategies presented in the lecture for dealing with this, and briefly explain why each of them
+helps. You do not need to write down the equations.
+
+\begin{solution}
+  Answer: \emph{Sequential optimisation.} First align the images with a \textbf{linear}
+  transformation model (rigid or affine), and only then run the deformable, non-linear
+  registration. The linear model has very few parameters and removes the large global
+  misalignment, so the non-linear stage starts close to the correct answer and only has to
+  explain the local differences that remain. Running the deformable model straight away would ask
+  it to absorb a global rotation or translation through local deformation, which is both harder to
+  optimise and physically wrong.
+
+  \emph{Multi-scale optimisation.} Build an image pyramid and start the registration at the
+  \textbf{coarsest} scale, using the result of each scale to initialise the next finer one,
+  $\theta^{(k-1)}_0 = \theta^{(k)}_*$. A coarse image has fewer details, so its objective function
+  is smoother and has fewer local minima; the coarse solution captures the large-scale alignment
+  and places the finer optimisation inside the basin of the correct minimum.
+
+  The two are routinely combined, and both are really the same idea: solve an easier version of the
+  problem first and use its answer as the starting point for the harder one.
+\end{solution}
+\answerspace{7.5cm}
+
+% =============================================================== Question 7 ===
+\question
+Convolutional networks reduce the spatial dimensions of their feature maps either with pooling or
+with strided convolutions. Which of the following statements is \textbf{inaccurate}?
+
+\begin{choices}
+  \choice Max pooling provides partial local translation invariance: the position of the maximum
+  can move within the pooling window without changing the pooled value.
+  \choice Pooling is applied to each channel separately and has no learnable parameters at all.
+  \choice A strided convolution reduces the spatial dimensions and, like pooling, buys a degree of
+  translation invariance.
+  \choice Average pooling is a linear operation, whereas max pooling is not.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  Strides help with dimensionality reduction, and that is all they do. Increasing the stride simply
+  samples the convolution at fewer positions --- it discards information (the more so the larger the
+  stride) and gives no invariance whatsoever, because shifting the input by one pixel changes which
+  positions get sampled. Max pooling is different precisely because of the maximum: the largest
+  activation inside the window can move around inside that window and the output does not change.
+  That is a real, if partial and purely local, invariance.
+\end{solution}
+
+% =============================================================== Question 8 ===
+\question
+Three standard measures are used to judge how well a statistical shape model has embedded the
+training data into a lower-dimensional space. Which of the following statements is
+\textbf{incorrect}?
+
+\begin{choices}
+  \choice Compactness measures how much of the total variance is explained by the first $t$ modes,
+  $C(t) = \sum_{i \leq t} \lambda_i / \lambda_{total}$; a compact model needs few parameters to
+  generate new shape instances.
+  \choice Generalisation measures the ability of the model to represent instances that were not in
+  the training set, and is estimated with leave-one-out reconstruction.
+  \choice Specificity measures how accurately the model reconstructs the training shapes
+  themselves; a perfectly specific model reproduces every training instance exactly.
+  \choice Principal component analysis assumes that the data follow a Gaussian distribution, and
+  produces an orthogonal lower-dimensional coordinate system that maximises the variance along each
+  successive axis.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  Specificity asks the opposite question: does the model generate \emph{only valid} shapes? It is
+  measured by drawing a large number of random instances from the model and, for each, computing
+  the distance to the closest shape in the training set. A model that can generate anatomically
+  impossible shapes scores badly, however well it reconstructs the training data.
+
+  Note the tension this creates with (B): generalisation improves as you keep more modes,
+  specificity degrades. The number of modes retained is a trade-off between the two.
+\end{solution}
+
+% =============================================================== Question 9 ===
+\question
+Which of the following statements about positional encoding and the structure of a transformer
+layer is \textbf{incorrect}?
+
+\begin{choices}
+  \choice Without positional encoding a transformer is equivariant to permutations of its input
+  tokens, so ``I bought an apple watch'' and ``watch an apple I bought'' cannot be distinguished.
+  \choice An ideal positional encoding should give a unique representation for each position, be
+  bounded, generalise to sequences longer than those seen in training, and encode the relative
+  positions of tokens.
+  \choice In the sinusoidal scheme the positional vector is concatenated to the token embedding,
+  which doubles the dimension of the representation entering the first transformer layer.
+  \choice A transformer layer consists of multi-head self-attention followed by a per-token MLP,
+  each of the two wrapped in a residual connection and followed by layer normalisation.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  The positional vector is \textbf{added}, not concatenated: $\tilde{x}_i = x_i + r_i$ with
+  $r_i, x_i \in \mathbb{R}^{D \times 1}$. The dimension of the representation is therefore
+  unchanged. This is why the encoding has to be bounded --- an unbounded positional vector added to
+  the embedding would swamp the token's own content.
+\end{solution}
+
+% ============================================================== Question 10 ===
+\question
+The magnitude image of an MR acquisition is formed from the real and imaginary channels as
+$J(x) = \sqrt{(I_r(x) + \epsilon)^2 + (I_i(x) + \eta)^2}$, where $\epsilon, \eta \sim
+\mathcal{N}(0, \sigma)$ are the noise in the two channels. What kind of noise does the resulting
+magnitude image have, and why does it matter?
+
+\begin{choices}
+  \choice Additive Gaussian noise, since $\epsilon$ and $\eta$ are both Gaussian and the operations
+  applied to them are continuous.
+  \choice Multiplicative speckle noise, of the same type as in ultrasound and optical coherence
+  tomography.
+  \choice Rician noise --- taking the magnitude makes the noise non-Gaussian and signal-dependent,
+  so denoising methods derived from an additive Gaussian model are mis-specified, particularly in
+  low-signal regions.
+  \choice Poisson noise, of the same type as the quantum noise in low-dose CT.
+  \choice No noise at all, because the two independent noise terms cancel in the magnitude
+  operation.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  The noise is Gaussian in the real and imaginary channels, but the magnitude operation is
+  non-linear, and a non-linear function of Gaussian variables is not Gaussian. The result is the
+  \textbf{Rician} distribution. The practical consequence is that the noise is signal-dependent:
+  where the true signal is strong the Rician distribution is close to Gaussian and an additive
+  model is a fair approximation, but in dark, low-signal regions it is strongly skewed and even
+  biases the mean intensity upwards. This is why specialised Rician denoisers exist for MRI.
+\end{solution}
+
+% ============================================================== Question 11 ===
+\question
+Consider a classification network that takes grey-scale input images of size $60 \times 60$ with
+one input channel. All convolutions are \emph{valid} (no padding, $P = 0$) with stride
+$S = 1$, and each is followed by max pooling with $K = 2 \times 2$ and $S = 2$:
+
+\begin{itemize}
+  \item \textbf{Conv1}: 12 kernels with $K = 5 \times 5$ \quad\textbf{Pool1}: $2\times2$, $S = 2$
+  \item \textbf{Conv2}: 24 kernels with $K = 5 \times 5$ \quad\textbf{Pool2}: $2\times2$, $S = 2$
+  \item \textbf{Conv3}: 48 kernels with $K = 3 \times 3$ \quad\textbf{Pool3}: $2\times2$, $S = 2$
+\end{itemize}
+
+\noindent Recall that a valid convolution gives $N_l = N_{l-1} - k_1 + 1$. Circle True or False:
+
+\begin{parts}
+  \part \TFT\ \ The output of Pool3 has a spatial size of $5 \times 5$.
+
+  \part \TFF\ \ Each neuron in Pool3 has a global receptive field covering the entire
+  $60 \times 60$ input image.
+
+  \part \TFT\ \ The total number of convolutional kernel weights (excluding the biases) is
+  $5 \cdot 5 \cdot 1 \cdot 12 + 5 \cdot 5 \cdot 12 \cdot 24 + 3 \cdot 3 \cdot 24 \cdot 48
+  = 17\,868$.
+
+  \part \TFF\ \ Replacing the three max-pooling layers by $2 \times 2$ convolutions with stride 2
+  would leave the total number of learnable parameters unchanged, because pooling and strided
+  convolution both simply downsample.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- tracking the sizes: $60 \xrightarrow{\text{Conv1}} 56 \xrightarrow{\text{Pool1}} 28
+  \xrightarrow{\text{Conv2}} 24 \xrightarrow{\text{Pool2}} 12 \xrightarrow{\text{Conv3}} 10
+  \xrightarrow{\text{Pool3}} 5$.
+
+  (b) FALSE --- it is $28 \times 28$, less than a quarter of the image area. Track the receptive
+  field $R$ and jump $j$ from $R = 1$, $j = 1$ with $R \leftarrow R + (K-1)\cdot j$ and
+  $j \leftarrow j \cdot S$: Conv1 $\rightarrow R = 5,\ j = 1$; Pool1 $\rightarrow R = 6,\ j = 2$;
+  Conv2 $\rightarrow R = 14,\ j = 2$; Pool2 $\rightarrow R = 16,\ j = 4$;
+  Conv3 $\rightarrow R = 24,\ j = 4$; Pool3 $\rightarrow R = 28,\ j = 8$. Output size and receptive
+  field are different things --- a $5 \times 5$ output does not mean each of those 25 neurons sees
+  everything. (The global stride, incidentally, is $8 \times 8$.)
+
+  (c) TRUE --- $300 + 7\,200 + 10\,368 = 17\,868$. Pooling layers contribute nothing.
+
+  (d) FALSE --- max pooling has \emph{no} learnable parameters, whereas convolutions do. The
+  replacement would add
+  $2 \cdot 2 \cdot 12 \cdot 12 + 2 \cdot 2 \cdot 24 \cdot 24 + 2 \cdot 2 \cdot 48 \cdot 48
+  = 576 + 2\,304 + 9\,216 = 12\,096$ new weights, an increase of about 68\%. The two operations
+  also differ in behaviour, not just in cost: pooling buys partial local translation invariance,
+  strided convolution does not.
+\end{solution}
+
+% ============================================================== Question 12 ===
+\question
+Which of the following statements on domain shift, adaptation and uncertainty are correct (multiple
+answers are possible)?
+
+\begin{choices}
+  \choice Acquisition shift is a change in $P_D(X \mid Z)$ --- scanner, resolution, contrast,
+  protocol --- and is the kind of dataset shift encountered most often in medical imaging.
+  \choice Prevalence shift is a change in $P_D(Y \mid X)$, caused for instance by differences in
+  annotation policy or in the experience of the annotator.
+  \choice The Expected Calibration Error measures the average gap between the confidence a model
+  assigns to its predictions and the accuracy it actually achieves at that confidence.
+  \choice Adapting only the batch-normalisation parameters of a network is not possible, because
+  batch normalisation has no learnable parameters.
+  \choice A deep ensemble approximates $p(\theta \mid D, M)$ by training the same architecture
+  several times from different random initialisations, on the assumption that the different runs
+  land in different modes of the parameter posterior.
+\end{choices}
+
+\begin{solution}
+  Answer: (A), (C) and (E) are correct.
+
+  (B) confuses two rows of the taxonomy. \emph{Prevalence} shift is a change in $P_D(Y)$ --- the
+  case--control balance, or how the target population was selected. A change in $P_D(Y \mid X)$
+  driven by annotation policy or annotator experience is \emph{annotation} shift.
+
+  (D) is wrong: batch normalisation computes
+  $\mathrm{BN}(a_l) = \gamma\,(a_l - \mu_l)/\sqrt{\sigma_l^2 + \epsilon} + \beta$, and the scale
+  $\gamma$ and shift $\beta$ are learnable. Adapting only those is a standard lightweight strategy,
+  attractive because it touches very few parameters and leaves the expensively trained weights
+  alone --- though it is not obvious that they are the right parameters for correcting a change in
+  intensity characteristics.
+\end{solution}
+
+\end{questions}
+
+\end{document}
