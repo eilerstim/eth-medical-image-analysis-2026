@@ -1,0 +1,493 @@
+%% Sample Exam 6 -- Medical Image Analysis (ETH Zurich, 2026)
+%%
+%% Written in the style of Example_Exam_with_Answers.pdf.
+%%
+%% Compile the version WITH solutions:      pdflatex "\def\withanswers{}\input{Sample_Exam_6.tex}"
+%% Compile the blank version (no answers):  pdflatex Sample_Exam_6.tex
+%%
+\ifx\withanswers\undefined
+  \documentclass[11pt]{exam}
+\else
+  \documentclass[11pt,answers]{exam}
+\fi
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------- page style
+\pagestyle{foot}
+\firstpageheader{}{}{}
+\firstpagefooter{}{}{}
+\runningheader{}{}{}
+\runningfooter{}{}{Page \thepage}
+
+% -------------------------------------------------------------- multiplechoice
+% Reproduce the "(A) (B) (C) ..." labelling of the original exam.
+\renewcommand{\choicelabel}{$\bigcirc$~(\Alph{choice})}
+
+% ---------------------------------------------------------- true/false macros
+% \TFT -> the statement is TRUE, \TFF -> the statement is FALSE.
+% In the answer version the correct word is set in capitals and bold.
+\newcommand{\TFT}{\ifprintanswers\textbf{TRUE}\hspace{1.1em}False\else True\hspace{1.1em}False\fi}
+\newcommand{\TFF}{True\hspace{1.1em}\ifprintanswers\textbf{FALSE}\else False\fi}
+
+% ------------------------------------------------------------- writing space
+% Reserves room to write in the blank version; collapses in the answer version.
+\newcommand{\answerspace}[1]{\ifprintanswers\else\vspace{#1}\fi}
+
+\begin{document}
+
+% ------------------------------------------------------------------ title page
+\begin{center}
+  {\LARGE\bfseries Sample Exam}\\[2mm]
+  {\Large Medical Image Analysis}\\[6mm]
+\end{center}
+
+\vspace{4mm}
+\noindent Student name:\hrulefill
+
+\vspace{6mm}
+\noindent Immatriculation number:\hrulefill
+
+\vspace{10mm}
+
+\begin{center}
+  {\large\bfseries Exam Questions}
+\end{center}
+
+\noindent\textbf{Note:} All the questions have equal weight.
+
+\vspace{4mm}
+
+\begin{questions}
+
+% =============================================================== Question 1 ===
+\question
+In axial 2D acquisitions the slices lie in the transverse plane and are stacked along the
+head-to-toe direction. Voxel sizes are given as in-plane (two values) and through-plane (the slice
+thickness), and the field-of-view is image size $\times$ voxel size.
+
+\vspace{1mm}
+\noindent An axial acquisition uses in-plane voxel size $0.7 \times 0.7$~mm$^2$ with 320 pixels in
+both directions, and through-plane voxel size $4.0$~mm with 44 slices.
+
+\begin{parts}
+
+  \part What is the field-of-view in the head-to-toe, left-to-right and anterior-to-posterior
+  directions, respectively?
+
+  \begin{solution}
+    Answer: $176 \times 224 \times 224$~mm$^3$.
+
+    Head-to-toe is the through-plane direction of an axial acquisition: $44 \times 4.0 = 176$~mm.
+    Both in-plane directions give $320 \times 0.7 = 224$~mm.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part The anatomy that has to be covered extends 210~mm in the head-to-toe direction. Does this
+  protocol cover it? If not, how many slices are needed at the same slice thickness, and by what
+  factor does the acquisition time change if it is proportional to the number of slices?
+
+  \begin{solution}
+    Answer: \textbf{No} --- the protocol covers only 176~mm of the required 210~mm.
+    $\lceil 210 / 4.0 \rceil = \lceil 52.5 \rceil = \mathbf{53}$ slices are needed (53 slices cover
+    212~mm). The acquisition time grows by a factor $53/44 \approx \mathbf{1.20}$, i.e.\ about
+    20\% longer.
+
+    Note that you must round \emph{up}: 52 slices would cover only 208~mm and miss the anatomy.
+  \end{solution}
+\answerspace{3.2cm}
+
+  \part Compute the anisotropy ratio of the voxels. This volume is then fed, without resampling,
+  to a 3D convolutional network that was trained on $1.0$~mm isotropic data. What goes wrong?
+
+  \begin{solution}
+    Answer: the anisotropy ratio is $4.0 / 0.7 \approx \mathbf{5.7}$ --- the voxel is almost six
+    times longer through-plane than in-plane.
+
+    A $3 \times 3 \times 3$ kernel therefore covers $2.1 \times 2.1 \times 12.0$~mm$^3$ of real
+    tissue instead of the $3 \times 3 \times 3$~mm$^3$ it saw during training. The receptive field
+    of every neuron is wildly asymmetric in physical space, so the spatial features the network
+    learned simply do not correspond to the same physical structures any more. This is a domain
+    shift the model was never trained for, and the fix is to resample to the training voxel size
+    first.
+
+    Note that resampling does not create the missing information: upsampling the through-plane
+    direction from 4.0~mm to 1.0~mm interpolates three samples out of every one that was really
+    measured. The effective resolution in that direction is still 4~mm.
+  \end{solution}
+\answerspace{4.5cm}
+
+\end{parts}
+
+% =============================================================== Question 2 ===
+\question
+In atlas-based segmentation the atlas is registered to the image and then used inside the mixture
+model. Which of the two posteriors below is the one used by atlas-based segmentation, as opposed to
+plain EM with a Gaussian mixture model? $\pi_n$ denotes a mixture weight estimated from the image
+itself. Please circle the correct choice.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle p(c(x){=}n \mid I(x)) \propto \mathcal{N}(I(x) \mid \mu_n, \Sigma_n)\ \pi_n$
+  \hspace{1.2cm}
+  $\displaystyle p(c(x){=}n \mid I(x)) \propto \mathcal{N}(I(x) \mid \mu_n, \Sigma_n)\
+  p_{atlas}(c(x){=}n)$
+\end{center}
+\vspace{2mm}
+
+\begin{solution}
+  Answer: Right one.
+
+  The atlas prior $p_{atlas}(c(x){=}n)$ \emph{replaces} the free mixture weight $\pi_n$. Two things
+  change as a result. The prior is now spatially varying --- it says something different at every
+  voxel, which is exactly the information plain EM lacks --- and it no longer has to be estimated,
+  so the class probabilities drop out of the optimisation entirely.
+\end{solution}
+\answerspace{1.5cm}
+
+% =============================================================== Question 3 ===
+\question
+Registration problems are classified along two axes: whether the two images come from the
+\emph{same or different subjects}, and whether they were acquired with the \emph{same or different
+modalities}.
+
+\begin{parts}
+  \part Which of the four combinations is the easiest and which is the hardest, and why?
+
+  \begin{solution}
+    Answer: easiest is \textbf{intra-subject, intra-modality}; hardest is \textbf{inter-subject,
+    inter-modality}.
+
+    The same subject imaged twice with the same sequence shows the same anatomy with comparable
+    intensities, so both the transformation and the similarity measure have an easy job. Different
+    subjects imaged with different modalities combine two independent difficulties: the anatomies
+    genuinely differ, and the intensities are not comparable. The relative difficulty of the two
+    middle cases is a subjective judgement. Difficulty also depends on the anatomy --- brain is
+    considerably easier than abdomen.
+  \end{solution}
+\answerspace{3.4cm}
+
+  \part Each axis primarily determines one component of the registration algorithm. Which axis
+  determines which, and why?
+
+  \begin{solution}
+    Answer: the \textbf{subject} axis determines the \textbf{transformation model}; the
+    \textbf{modality} axis determines the \textbf{loss function}.
+
+    Same subject means the same anatomy is present in both images, so a rigid or affine model is
+    often enough --- what changed is position, not shape. Different subjects have genuinely
+    different anatomy, with no exact correspondence and possibly pathology, so a deformable model
+    is required.
+
+    The modality determines whether intensities are comparable. Within a modality, SSD is
+    appropriate. Across modalities it fails outright, and you need a statistical metric that is
+    invariant to the intensity relationship --- normalised cross-correlation for a linear
+    relationship, mutual information for an arbitrary one.
+  \end{solution}
+\answerspace{3.6cm}
+\end{parts}
+
+% =============================================================== Question 4 ===
+\question
+Please indicate whether the statement is true or false by circling the correct choice in each of
+the following.
+
+\begin{parts}
+  \part \TFT\ \ The $3 \times 3$ mean filter is separable, $S_3 = \frac{1}{9}[1,1,1] * [1,1,1]^T$,
+  which makes it cheaper to apply than a general $3 \times 3$ kernel.
+
+  \part \TFF\ \ A Gaussian has finite support, so a $3 \times 3$ structural element represents a
+  Gaussian filter exactly.
+
+  \part \TFT\ \ Binomial filters are built by iterated convolution of $[1,1]$ and have better
+  properties in the frequency domain than mean filtering.
+
+  \part \TFF\ \ Increasing $\sigma$ of a Gaussian filter smooths more, but the size of structural
+  element required is independent of $\sigma$.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- a separable 2D kernel can be applied as two 1D passes, which costs $O(k)$ per pixel
+  instead of $O(k^2)$. The Gaussian and binomial kernels are separable as well.
+
+  (b) FALSE --- the Gaussian has \emph{infinite} support. Any finite structural element is only an
+  approximation of it, truncated at some distance from the centre.
+
+  (c) TRUE --- $S_3 = \frac{1}{16}\left[\begin{smallmatrix}1&2&1\\2&4&2\\1&2&1\end{smallmatrix}
+  \right]$, obtained from successive convolutions of $[1,1]$, and larger binomial kernels from
+  successive convolutions of smaller ones. They are integer filters and behave better in the
+  frequency domain than the box filter.
+
+  (d) FALSE --- and (b) is the reason. Since the element only approximates the Gaussian by
+  truncating it, a wider Gaussian needs a correspondingly larger element for the approximation to
+  remain good. Using a $3 \times 3$ element with a large $\sigma$ silently truncates most of the
+  kernel.
+\end{solution}
+
+% =============================================================== Question 5 ===
+\question
+A classification network takes an input image $x \in \mathbb{R}^{64 \times 64}$ with a single
+channel and maps it through hidden layers of 256, 128 and 64 units to 16 output classes. Consider
+only the \emph{first} link, from the input to the 256-unit layer, and ignore biases throughout.
+
+\begin{parts}
+  \part How many weights does this link have if it is fully connected?
+  \begin{solution}
+    Answer: $64 \times 64 \times 256 = 4\,096 \times 256 = \mathbf{1\,048\,576}$ weights.
+  \end{solution}
+\answerspace{1.8cm}
+
+  \part How many weights does it have if it is instead a valid $5 \times 5$ convolution producing
+  256 output channels from the single input channel?
+  \begin{solution}
+    Answer: $5 \times 5 \times 1 \times 256 = \mathbf{6\,400}$ weights.
+  \end{solution}
+\answerspace{1.8cm}
+
+  \part What is the ratio, and what property of the convolutional layer explains it?
+  \begin{solution}
+    Answer: $1\,048\,576 / 6\,400 = \mathbf{163.84}$, so the fully connected link has roughly 164
+    times more parameters.
+
+    The explanation is \textbf{weight sharing}: the same $5 \times 5$ kernel is applied at every
+    position, so the parameter count depends only on the kernel size and the channel counts --- and
+    not at all on the image size. The fully connected count, by contrast, scales with the number of
+    pixels. Doubling the image to $128 \times 128$ would quadruple the fully connected count to over
+    four million while leaving the convolutional count at exactly 6\,400.
+
+    Note also that the convolutional layer \emph{lifts} the data to 256 channels at every spatial
+    position rather than compressing the whole image into 256 numbers, so it retains far more
+    information despite using far fewer parameters.
+  \end{solution}
+\answerspace{3.4cm}
+\end{parts}
+
+% =============================================================== Question 6 ===
+\question
+In atlas-based segmentation the model is $p(I(x) \mid \theta) = \sum_n \mathcal{N}(I(x) \mid \mu_n,
+\Sigma_n)\, p_{atlas}(c(x){=}n)$ with $\theta = \{\mu_n, \Sigma_n\}_{n=1}^N$. Please explain why the
+intensity parameters $\mu_n$ and $\Sigma_n$ still have to be estimated for every new MR image, but
+could in principle be fixed in advance for CT. Then state what else the atlas gives you compared
+with plain EM. You do not need to write down the equations.
+
+\begin{solution}
+  Answer: \emph{Why MRI needs them fitted.} MRI has \textbf{no absolute intensity scale}. The number
+  stored in a voxel depends on the scanner, the coil, the sequence parameters and the
+  reconstruction, so ``the intensity of white matter'' is not a fixed quantity --- it differs
+  between two scans of the same person on two machines. The Gaussian parameters therefore have to be
+  re-estimated from each image.
+
+  \emph{Why CT could fix them.} CT intensities are expressed in \textbf{Hounsfield units}, which are
+  physically calibrated against water and air. A given tissue has a reproducible value across
+  scanners, so $\mu_n$ and $\Sigma_n$ can be tabulated in advance and all the parameters fixed.
+
+  \emph{What else the atlas buys.} Two things beyond the accuracy gain. It supplies
+  \textbf{spatially varying prior information} --- at each voxel it says what is expected there,
+  which is exactly what plain EM has no way of knowing. And it \textbf{removes the label
+  ambiguity}: unsupervised EM returns clusters in an arbitrary order with no names attached, whereas
+  with an atlas component $n$ \emph{is} grey matter. You know what you asked for, and there is no
+  randomness left in which component is which.
+\end{solution}
+\answerspace{7.5cm}
+
+% =============================================================== Question 7 ===
+\question
+Which of the following statements about interpolation is \textbf{inaccurate}?
+
+\begin{choices}
+  \choice Bilinear interpolation can equivalently be written as the parametric surface
+  $I(x_1,x_2) = a + b x_1 + c x_2 + d x_1 x_2$, whose four unknowns are fixed by the intensities at
+  the four surrounding pixels.
+  \choice The trilinear extension adds the remaining monomials to give eight unknowns, fixed by the
+  eight corner voxels of the cell containing the query point.
+  \choice Bicubic interpolation has 16 unknowns, determined by the four corner intensities together
+  with their first and mixed derivatives --- and since those derivatives must themselves be
+  approximated from further pixels, bicubic effectively uses more than four samples.
+  \choice Because bilinear interpolation is a weighted average of the surrounding values, applying
+  it repeatedly during an iterative registration leaves the effective spatial resolution unchanged.
+\end{choices}
+
+\begin{solution}
+  Answer: D.
+
+  Averaging is exactly what costs you resolution. Bilinear interpolation smooths the image slightly
+  every time it is applied, and during an optimisation loop it is applied thousands of times, so the
+  blurring compounds. This is one reason the standard strategy is bilinear \emph{during} the
+  optimisation, where speed matters, and bicubic for the \emph{final} resampling, where quality
+  matters and the cost is paid once.
+\end{solution}
+
+% =============================================================== Question 8 ===
+\question
+Which of the following statements about the loss functions used for image restoration is
+\textbf{incorrect}?
+
+\begin{choices}
+  \choice MAE, MSE, NMSE, PSNR and SSIM are all computed directly between the prediction and the
+  ground-truth image.
+  \choice SSIM compares many local patches of the two images and combines three components ---
+  luminance, contrast and structure.
+  \choice A perceptual loss passes both images through a previously trained network and compares
+  intermediate features; that feature network must have been trained on the same task and the same
+  modality as the restoration model, otherwise the comparison is meaningless.
+  \choice An adversarial loss is a distributional distance defined over \emph{sets} of samples
+  rather than between two paired images.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  The feature network does not have to match the task or the modality. The lecture explicitly allows
+  a well-established network trained on \emph{natural} images --- VGG is the standard choice --- or a
+  network trained on CT images for some entirely different task. What is being borrowed is a
+  general-purpose notion of what makes two images look different in terms of contextual content
+  rather than pixel values, and that transfers surprisingly well across domains.
+
+  The motivation for all of this is that MSE-type losses produce visibly over-smoothed output;
+  combining a perceptual loss with an adversarial one gave the most realistic denoised low-dose CT
+  in the referenced work.
+\end{solution}
+
+% =============================================================== Question 9 ===
+\question
+A semi-supervised auxiliary loss enforces consistency under spatial transformations. Two
+transformations $\phi_1, \phi_2$ are drawn per image and the loss is
+$\mathcal{L}\big(\phi_2 \circ \phi_1^{-1} \circ f(\phi_1 \circ x;\theta),\ f(\phi_2 \circ x;\theta)
+\big)$. Which of the following statements is \textbf{incorrect}?
+
+\begin{choices}
+  \choice The loss requires no labels, so it can be evaluated on unlabelled images.
+  \choice It encodes the principle that if $x \Leftrightarrow y$ then $\phi \circ x \Leftrightarrow
+  \phi \circ y$, which is the same principle that underlies data augmentation.
+  \choice The inverse $\phi_1^{-1}$ appears so that the two predictions are brought into a common
+  spatial frame; without it they would sit in different frames and could not be compared pixel by
+  pixel.
+  \choice Because the loss is defined on unlabelled data, it replaces the supervised loss rather
+  than being added to it.
+\end{choices}
+
+\begin{solution}
+  Answer: D.
+
+  It is an \emph{auxiliary} loss: the total cost is the supervised loss over the labelled examples
+  \emph{plus} the consistency term, and the consistency term is summed over labelled and unlabelled
+  examples alike. Dropping the supervised loss would remove the only thing that ties the network's
+  output to the actual task --- a network that predicts a constant map everywhere is perfectly
+  consistent under any transformation, and perfectly useless.
+\end{solution}
+
+% ============================================================== Question 10 ===
+\question
+When the network parameters are sampled from their posterior rather than optimised to a point
+estimate, the sampled parameters can perform noticeably worse on the task than the MAP estimate.
+What is the explanation given in the lecture?
+
+\begin{choices}
+  \choice In high dimensions the posterior is always unimodal, so every sample collapses onto the
+  mean and no diversity is possible.
+  \choice For an isotropic Gaussian in $d$ dimensions the expected distance of a sample from the
+  mean grows like $\sqrt{d}$, so samples concentrate away from the mode --- and since the likelihood
+  $p(D \mid \theta, M)$ \emph{is} the task loss, moving away from the mode means moving away from
+  well-performing parameters.
+  \choice High-dimensional posteriors cannot be sampled at all, so any apparent sample is an
+  artefact of the random number generator.
+  \choice In high dimensions the task loss becomes independent of the parameters, so performance is
+  essentially random.
+  \choice Sampling error decreases with dimension, so the effect disappears entirely for large
+  networks.
+\end{choices}
+
+\begin{solution}
+  Answer: B.
+
+  This is the ``typical set'' phenomenon and it is thoroughly counter-intuitive: in high dimensions
+  almost none of the probability mass sits near the mode, even though the mode is the single most
+  probable point. Samples live in a thin shell at distance $\approx \sqrt{d}$ from the mean.
+
+  The consequence for uncertainty estimation is uncomfortable. Because $\log p(D \mid \theta, M)$ is
+  precisely the training objective, a parameter vector drawn honestly from the posterior can sit in
+  a region of poor task performance --- so a faithful posterior sample and a well-performing network
+  are not the same thing. Bounded sampling schemes have been proposed to mitigate this, but they do
+  not fully solve it.
+\end{solution}
+
+% ============================================================== Question 11 ===
+\question
+A Vision Transformer is applied to images of size $224 \times 224$ with 3 channels. It uses a patch
+size of $P = 16$, an embedding dimension of $D = 768$, and 12 attention heads. Recall that the image
+is split into $N = HW/P^2$ patches, each flattened and mapped by a patch-embedding matrix
+$E \in \mathbb{R}^{(P^2 C) \times D}$, and that a learnable class token is prepended to the sequence.
+Circle True or False:
+
+\begin{parts}
+  \part \TFT\ \ The number of patch tokens is $N = 196$.
+
+  \part \TFT\ \ The patch-embedding matrix $E$ is $768 \times 768$ and therefore contains
+  $589\,824$ weights.
+
+  \part \TFF\ \ After the class token is added, the sequence entering the encoder still has length
+  196, because the class token takes the place of one patch.
+
+  \part \TFF\ \ The attention matrix $QK^T$ of a single head has $N \times N$ entries, so its size
+  grows linearly with the number of tokens.
+\end{parts}
+
+\begin{solution}
+  (a) TRUE --- $N = HW/P^2 = (224 \times 224)/16^2 = 50\,176/256 = 196$, i.e.\ a $14 \times 14$ grid
+  of patches.
+
+  (b) TRUE --- the flattened patch has $P^2 C = 16^2 \times 3 = 256 \times 3 = 768$ entries, and it
+  is mapped to $D = 768$, so $E$ is $768 \times 768 = 589\,824$. (That the two dimensions coincide is
+  a property of this particular configuration, not a general rule.)
+
+  (c) FALSE --- the class token is \emph{prepended}, not substituted: the sequence length becomes
+  $196 + 1 = 197$. It carries no patch content of its own; it exists so that the final
+  representation at that position can be read out and passed to the classification MLP.
+
+  (d) FALSE --- an $N \times N$ matrix has $N^2$ entries, so the cost grows \textbf{quadratically}
+  with sequence length. Here that is $197^2 = 38\,809$ attention scores per head, and 12 heads per
+  layer. This quadratic scaling is the reason patching exists at all: attending over all
+  $224 \times 224 = 50\,176$ pixels individually would need over $2.5$ billion scores per head.
+\end{solution}
+
+% ============================================================== Question 12 ===
+\question
+Which of the following statements on self-supervised learning are correct (multiple answers are
+possible)?
+
+\begin{choices}
+  \choice Contrastive learning needs labelled examples in order to decide which pairs of images
+  should be treated as positive and which as negative.
+  \choice A pre-text task is a task that requires only images; the network trained on it is then
+  fine-tuned with very few labelled examples on the task you actually care about.
+  \choice In the \emph{local} contrastive loss the transformations must either preserve the patch
+  correspondences or be undone before the corresponding patches are compared.
+  \choice Foundation models in this setting are obtained by supervised training at very large scale
+  on carefully curated labelled data sets.
+  \choice The InfoNCE loss maximises the similarity between two views of the same image through its
+  numerator, and minimises the similarity to the samples of the negative set through its
+  denominator.
+\end{choices}
+
+\begin{solution}
+  Answer: (B), (C) and (E) are correct.
+
+  (A) is wrong, and it is wrong about the whole point of the method. The labels in contrastive
+  learning are \emph{surrogate} labels manufactured from the data itself: two random transformations
+  of the same image are declared ``close'', everything else ``far''. No human annotation is involved
+  --- which is precisely why the approach is useful when labels are scarce. Note also that the
+  transformations are not restricted to geometric ones; intensity changes are used deliberately, so
+  that the representation becomes invariant to them.
+
+  (D) inverts the defining property. Foundation models here are built by \textbf{self-supervised}
+  training at very large scale --- masked auto-encoding and variations of contrastive learning ---
+  on transformer architectures. Requiring curated labels at that scale is exactly what these methods
+  exist to avoid.
+\end{solution}
+
+\end{questions}
+
+\end{document}
