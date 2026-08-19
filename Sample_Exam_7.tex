@@ -1,0 +1,453 @@
+%% Sample Exam 7 -- Medical Image Analysis (ETH Zurich, 2026)
+%%
+%% Written in the style of Example_Exam_with_Answers.pdf.
+%%
+%% Compile the version WITH solutions:      pdflatex "\def\withanswers{}\input{Sample_Exam_7.tex}"
+%% Compile the blank version (no answers):  pdflatex Sample_Exam_7.tex
+%%
+\ifx\withanswers\undefined
+  \documentclass[11pt]{exam}
+\else
+  \documentclass[11pt,answers]{exam}
+\fi
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{array}
+\usepackage[T1]{fontenc}
+
+% ---------------------------------------------------------------- page style
+\pagestyle{foot}
+\firstpageheader{}{}{}
+\firstpagefooter{}{}{}
+\runningheader{}{}{}
+\runningfooter{}{}{Page \thepage}
+
+% -------------------------------------------------------------- multiplechoice
+% Reproduce the "(A) (B) (C) ..." labelling of the original exam.
+\renewcommand{\choicelabel}{$\bigcirc$~(\Alph{choice})}
+
+% ---------------------------------------------------------- true/false macros
+% \TFT -> the statement is TRUE, \TFF -> the statement is FALSE.
+% In the answer version the correct word is set in capitals and bold.
+\newcommand{\TFT}{\ifprintanswers\textbf{TRUE}\hspace{1.1em}False\else True\hspace{1.1em}False\fi}
+\newcommand{\TFF}{True\hspace{1.1em}\ifprintanswers\textbf{FALSE}\else False\fi}
+
+% ------------------------------------------------------------- writing space
+% Reserves room to write in the blank version; collapses in the answer version.
+\newcommand{\answerspace}[1]{\ifprintanswers\else\vspace{#1}\fi}
+
+\begin{document}
+
+% ------------------------------------------------------------------ title page
+\begin{center}
+  {\LARGE\bfseries Sample Exam}\\[2mm]
+  {\Large Medical Image Analysis}\\[6mm]
+\end{center}
+
+\vspace{4mm}
+\noindent Student name:\hrulefill
+
+\vspace{6mm}
+\noindent Immatriculation number:\hrulefill
+
+\vspace{10mm}
+
+\begin{center}
+  {\large\bfseries Exam Questions}
+\end{center}
+
+\noindent\textbf{Note:} All the questions have equal weight.
+
+\vspace{4mm}
+
+\begin{questions}
+
+% =============================================================== Question 1 ===
+\question
+In 2D acquisitions, slices are acquired in one pre-defined plane and stacked along the remaining
+direction: axial slices stack head-to-toe, sagittal slices left-to-right, coronal slices
+anterior-to-posterior. Voxel sizes are given as in-plane (two values) and through-plane (the slice
+thickness), and the field-of-view is image size $\times$ voxel size.
+
+\vspace{1mm}
+\noindent You are handed a volume with the following properties, but the acquisition plane is not
+recorded: field-of-view $240$~mm head-to-toe, $240$~mm left-to-right, $180$~mm
+anterior-to-posterior; voxel size in-plane $0.75 \times 0.75$~mm$^2$, through-plane $4.5$~mm.
+
+\begin{parts}
+
+  \part In which plane was this volume acquired? Justify your answer from the numbers.
+
+  \begin{solution}
+    Answer: a \textbf{coronal} acquisition.
+
+    The through-plane direction is the one whose extent is sampled at $4.5$~mm, and only
+    anterior-to-posterior works: $180 / 4.5 = 40$ slices, an integer. If either of the other two
+    directions were through-plane, it would need $240 / 4.5 = 53.3$ slices --- not an integer, so
+    the numbers are inconsistent with any other assignment. Slices stacked along
+    anterior-to-posterior lie in the coronal plane.
+  \end{solution}
+\answerspace{3.0cm}
+
+  \part How many voxels does the volume have in the head-to-toe, left-to-right and
+  anterior-to-posterior directions, respectively?
+
+  \begin{solution}
+    Answer: $320 \times 320 \times 40$~voxels.
+
+    Head-to-toe and left-to-right are in-plane: $240 / 0.75 = 320$ each. Anterior-to-posterior is
+    through-plane: $180 / 4.5 = 40$.
+  \end{solution}
+\answerspace{2.2cm}
+
+  \part The volume is resampled to isotropic $1.5 \times 1.5 \times 1.5$~mm$^3$ voxels. Give the
+  resize factors and the resulting image size, and verify that the field-of-view is unchanged.
+
+  \begin{solution}
+    Answer: resize factors $0.5 \times 0.5 \times 3.0$, resulting image size
+    $160 \times 160 \times 120$~voxels.
+
+    The factor is the ratio of old to new voxel size: $0.75/1.5 = 0.5$ in-plane,
+    $4.5/1.5 = 3.0$ through-plane. Sizes: $320 \cdot 0.5 = 160$, $320 \cdot 0.5 = 160$,
+    $40 \cdot 3.0 = 120$. Field-of-view check: $160 \cdot 1.5 = 240$, $160 \cdot 1.5 = 240$,
+    $120 \cdot 1.5 = 180$~mm --- unchanged, as it must be. (The anterior-to-posterior direction is
+    upsampled by 3: two of every three samples there are interpolated, not measured.)
+  \end{solution}
+\answerspace{3.6cm}
+
+\end{parts}
+
+% =============================================================== Question 2 ===
+\question
+In bilinear interpolation the intensity at a query point $x_1$ (with $x_1^0 \le x_1 \le x_1^1$) is
+first interpolated along one dimension from the two neighbouring pixels. Which of the two
+expressions below is the correct linear interpolation? Please circle the correct choice.
+
+\vspace{2mm}
+\begin{center}
+  $\displaystyle I(x_1) = \frac{x_1^1 - x_1}{x_1^1 - x_1^0}\, I(x_1^0)
+  + \frac{x_1 - x_1^0}{x_1^1 - x_1^0}\, I(x_1^1)$
+  \hspace{1.1cm}
+  $\displaystyle I(x_1) = \frac{x_1 - x_1^0}{x_1^1 - x_1^0}\, I(x_1^0)
+  + \frac{x_1^1 - x_1}{x_1^1 - x_1^0}\, I(x_1^1)$
+\end{center}
+\vspace{2mm}
+
+\begin{solution}
+  Answer: Left one.
+
+  Each pixel's weight must be proportional to the query point's distance from the \emph{other}
+  pixel --- nearness earns weight. The sanity check takes two seconds: set $x_1 = x_1^0$. The left
+  expression gives $1 \cdot I(x_1^0) + 0 \cdot I(x_1^1) = I(x_1^0)$, as an interpolant must. The
+  right expression gives $I(x_1^1)$ --- the wrong pixel entirely; its weights are inverted.
+  Bilinear interpolation applies this step along $x_1$ and then along $x_2$ (trilinear adds the
+  third dimension, using the 8 cube corners).
+\end{solution}
+\answerspace{1.5cm}
+
+% =============================================================== Question 3 ===
+\question
+Probabilistic reasoning underlies most of this course.
+
+\begin{parts}
+  \part If each pixel intensity is treated as a realization of a random variable, the (normalized)
+  histogram and the cumulative histogram of an image approximate two standard probabilistic
+  objects. Which two --- and what assumption about the pixels makes this approximation valid?
+
+  \begin{solution}
+    Answer: the normalized histogram approximates the \textbf{probability density function} of the
+    intensity, and the cumulative histogram approximates the \textbf{cumulative distribution
+    function}.
+
+    The assumption is that each pixel intensity is an \textbf{independent realization} of the same
+    random variable $I$ --- only then is counting pixels per intensity bin an estimate of the
+    underlying distribution.
+  \end{solution}
+\answerspace{2.8cm}
+
+  \part The Maximum-A-Posteriori estimate is $\arg\max_l\, p(i \mid l)\, p(l)$ and the Maximum
+  Likelihood estimate is $\arg\max_l\, p(i \mid l)$. Under what condition on the prior are the two
+  identical?
+
+  \begin{solution}
+    Answer: when the prior is \textbf{uniform}, $p(l) = c$ for all $l$.
+
+    A constant factor does not change the location of a maximum, so the prior drops out of the
+    $\arg\max$ and MAP reduces to MLE. Conversely, whenever anyone uses MLE they are implicitly
+    assuming that no value of $l$ is more plausible than any other before seeing the data.
+  \end{solution}
+\answerspace{2.2cm}
+\end{parts}
+
+% =============================================================== Question 4 ===
+\question
+Non-local means computes $\hat I(x) = \sum_{y} w(x,y) J(y)$ with weights from the similarity of
+the patches $N(x)$ and $N(y)$, a degree-of-filtering parameter $h$, and averaging restricted to a
+search window $W(x)$. Please indicate whether the statement is true or false by circling the
+correct choice in each of the following.
+
+\begin{parts}
+  \part \TFF\ \ Choosing the patch to be the entire image, $N(x) = \Omega$, reduces non-local means
+  to Gaussian filtering.
+
+  \part \TFT\ \ Choosing the patch to be the single pixel, $N(x) = \{x\}$, reduces non-local means
+  to Yaroslavsky's filter, a special case of bilateral filtering.
+
+  \part \TFF\ \ Increasing $h$ decreases the amount of smoothing.
+
+  \part \TFT\ \ The averaging is restricted to a search window $W(x)$ rather than the whole image
+  mainly to reduce the computational cost.
+\end{parts}
+
+\begin{solution}
+  (a) FALSE --- it reduces to \emph{mean} filtering, not Gaussian filtering. If every pixel's patch
+  is the whole image, all patches are identical, every weight is equal, and the weighted average
+  degenerates to the plain average.
+
+  (b) TRUE --- with a single-pixel ``patch'' the weight compares raw grey values, which is exactly
+  the neighbourhood-filter family (Yaroslavsky, bilateral). This is also why NLM is more robust:
+  a single noisy value is a fragile basis for similarity, a whole patch is not.
+
+  (c) FALSE --- $h$ is the degree of filtering: larger $h$ makes the exponential weights decay more
+  slowly, so more (less similar) patches contribute and the result is \emph{smoother}. $h$ should
+  be tied to the noise level, which is worth estimating first.
+
+  (d) TRUE --- and it also encodes a mild prior that useful matches are nearby. The three
+  parameters of the method are exactly $h$, the patch size, and the search-window size.
+\end{solution}
+
+% =============================================================== Question 5 ===
+\question
+A 2D landmark-based registration uses thin-plate splines with the $N = 50$ landmarks as control
+points, combined with a global affine part. How many parameters does the transformation have? How
+does this compare with a naive deformable parameterization of a $256 \times 256$ image that stores
+one independent displacement vector per pixel?
+
+\begin{solution}
+  Answer: the TPS model has $50 \times 2 + 6 = \mathbf{106}$ parameters; the naive field has
+  $256 \times 256 \times 2 = \mathbf{131\,072}$ --- about $1\,240$ times more.
+
+  Each control point carries a coefficient vector $d_n \in \mathbb{R}^2$ (100 parameters), and the
+  2D affine part adds $4 + 2 = 6$. The comparison is the point of the question: both are
+  ``deformable'' models, but the TPS parameterization builds smoothness in and needs three orders
+  of magnitude fewer parameters, while the naive field is not only huge but can produce noisy,
+  topology-breaking transformations for generic parameter values.
+\end{solution}
+\answerspace{3.6cm}
+
+% =============================================================== Question 6 ===
+\question
+An Active Appearance Model extends a statistical shape model with a model of texture. Please
+describe briefly (i) how the texture model is built from the training images, and (ii) how shape
+and texture are combined into a single set of appearance parameters. You do not need to write down
+the equations.
+
+\begin{solution}
+  Answer: \emph{(i) Building the texture model.} Every training image is \textbf{warped to the mean
+  shape}, which removes the shape variation and yields a shape-free patch. The intensities are
+  sampled from this shape-normalized image into a texture vector and \textbf{normalized in
+  intensity} to eliminate lighting variation. PCA is then applied to the normalized texture
+  vectors, exactly as it was applied to the shape coordinates: $g \approx \bar g + P_g b_g$.
+
+  \emph{(ii) Combining shape and texture.} Each training sample is now summarized by two parameter
+  vectors, $b_s$ for shape and $b_g$ for texture --- and the two are correlated (a shape change
+  usually comes with a texture change). They are stacked into a single vector, with a weighting
+  $W_s$ on the shape part to account for the different units of shape and texture, and a
+  \textbf{second PCA} is run on the stacked vectors. The resulting parameters $c$ control shape and
+  texture \emph{jointly}: a new image is generated by producing the shape-free texture from $c$ and
+  warping it with the shape that the same $c$ describes.
+
+  (Fitting then works by synthesising the model image and minimising its difference to the target,
+  with the parameter-update matrix precomputed from training-set perturbations.)
+\end{solution}
+\answerspace{7.5cm}
+
+% =============================================================== Question 7 ===
+\question
+Which of the following statements about atlas-based segmentation practice is \textbf{inaccurate}?
+
+\begin{choices}
+  \choice An atlas consists of an image together with its manual segmentation; it is registered to
+  the unseen patient image and the labels are propagated along the transformation.
+  \choice When an average (mean) atlas is built from a population, the choice of the reference
+  subject does not influence the result --- averages built from different references are the same.
+  \choice The quality of an atlas-based segmentation depends on the image similarity between atlas
+  and patient, the presence of pathology, the quality of the registration, and how typical the
+  patient is of the atlas population.
+  \choice Shape-based averaging fuses several segmentations by averaging their distance transforms
+  rather than voting on their labels.
+\end{choices}
+
+\begin{solution}
+  Answer: B.
+
+  This is the \textbf{reference-selection bias}: average models built with different reference
+  subjects are demonstrably \emph{not} the same --- the lecture shows two different average images
+  from two different references. The bias is precisely what motivates unbiased, group-wise
+  template construction in a natural coordinate frame, rather than anchoring the average to any
+  single individual.
+\end{solution}
+
+% =============================================================== Question 8 ===
+\question
+Which of the following statements on uncertainty estimation is \textbf{incorrect}?
+
+\begin{choices}
+  \choice One source of uncertainty is that the input $x$ may not uniquely identify the label $y$.
+  \choice Another source is that the training set $D$ is itself a random sample from the
+  population, and a different draw would have produced different parameters.
+  \choice The Generalized Energy Distance can be evaluated on an ordinary test set with a single
+  annotation per image, which is why it is the most general evaluation of uncertainty.
+  \choice The Expected Calibration Error measures the average gap between the confidence a model
+  assigns and the accuracy it actually achieves at that confidence.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  The two evaluation routes are exactly reversed. GED (like MMD) is a \emph{distributional}
+  distance between the set of model samples and the set of \textbf{observed annotations} --- it
+  needs data sets with \emph{multiple labels per image}, such as multi-rater segmentations. When
+  only one annotation per image is available --- the most general case --- the tool is
+  \textbf{calibration}, i.e.\ ECE: whether the assigned confidence tracks the achieved accuracy.
+\end{solution}
+
+% =============================================================== Question 9 ===
+\question
+Which of the following statements from the machine-learning recap is \textbf{incorrect}?
+
+\begin{choices}
+  \choice Hyper-parameters --- the architecture, the stopping point of the optimization, the
+  learning rate --- are chosen using a validation set, ideally as a nested optimization inside the
+  training of the parameters.
+  \choice The training loss is a sum over samples, so the optimal parameters do not have to satisfy
+  any single sample perfectly --- they satisfy the samples on average.
+  \choice The prediction error on the test set must be computed with the same differentiable loss
+  that was used for training, since otherwise the numbers are not comparable.
+  \choice For a new sample the prediction is $y \approx f(x; \theta^*)$, and in general
+  $y \neq f(x; \theta^*)$.
+\end{choices}
+
+\begin{solution}
+  Answer: C.
+
+  Backwards on both counts. Differentiability is a requirement of \emph{training} --- the loss must
+  be optimized --- not of \emph{evaluation}. On the test set one may, and often should, use a
+  different, more application-appropriate function $D$, precisely in the cases where $D$ is not
+  differentiable (a ranking-based measure is the lecture's example). The same logic appeared with
+  segmentation: the set-based Dice score is the standard \emph{evaluation} measure even when the
+  network was trained with cross-entropy or soft Dice.
+\end{solution}
+
+% ============================================================== Question 10 ===
+\question
+``Meaningful perturbation'' explains a classifier's decision by perturbing the input. Which of the
+following statements describes the method correctly?
+
+\begin{choices}
+  \choice It searches the training set for the image that most strongly activates the class and
+  presents it as the explanation.
+  \choice It optimizes an information-deletion mask --- applying blur, noise or masking --- that
+  covers as little of the image as possible while dropping the class score as much as possible.
+  \choice It requires no evaluations of the model, which makes it the cheapest explanation method.
+  \choice It computes the gradient of the class score with respect to the convolutional feature
+  maps and pools it into a heatmap.
+  \choice Because the mask is optimized, the resulting perturbations are guaranteed to remain
+  natural-looking.
+\end{choices}
+
+\begin{solution}
+  Answer: B.
+
+  The key idea is to find the \emph{right} perturbation --- a form of information deletion --- and
+  study its effect on the prediction: a mask objective balances minimal coverage against maximal
+  drop in the class score. (D) describes Grad-CAM, a different method. (E) is the method's known
+  caveat, inverted: unconstrained optimization can produce \emph{unnatural} perturbations ---
+  adversarial-like artifacts against the explanation --- which is why the meaning of the
+  explanation depends on the meaning of the changes applied to the input.
+\end{solution}
+
+% ============================================================== Question 11 ===
+\question
+A classification network takes grey-scale input images of size $68 \times 68$ with one input
+channel. All convolutions are \emph{valid} (no padding) with stride $S = 1$:
+
+\begin{itemize}
+  \item \textbf{Conv1}: 6 kernels with $K = 5 \times 5$ \quad\textbf{Pool1}: max pooling
+    $2 \times 2$, $S = 2$
+  \item \textbf{Conv2}: 12 kernels with $K = 3 \times 3$ \quad\textbf{Pool2}: max pooling
+    $2 \times 2$, $S = 2$
+  \item \textbf{Conv3}: 24 kernels with $K = 3 \times 3$
+\end{itemize}
+
+\noindent Circle True or False:
+
+\begin{parts}
+  \part \TFF\ \ The output of Conv3 has a spatial size of $15 \times 15$.
+
+  \part \TFT\ \ The global receptive field of a neuron in Conv3 is $20 \times 20$.
+
+  \part \TFF\ \ The global stride of a neuron in Conv3 is $8 \times 8$.
+
+  \part \TFT\ \ The network's convolutional layers have
+  $5 \cdot 5 \cdot 1 \cdot 6 + 3 \cdot 3 \cdot 6 \cdot 12 + 3 \cdot 3 \cdot 12 \cdot 24 = 3\,390$
+  kernel weights, and including one bias per kernel the total number of parameters is $3\,432$.
+\end{parts}
+
+\begin{solution}
+  (a) FALSE --- $15 \times 15$ is the size \emph{entering} Conv3, not leaving it. Tracking:
+  $68 \xrightarrow{\text{Conv1}} 64 \xrightarrow{\text{Pool1}} 32 \xrightarrow{\text{Conv2}} 30
+  \xrightarrow{\text{Pool2}} 15 \xrightarrow{\text{Conv3}} 13$. The output is $13 \times 13$.
+
+  (b) TRUE --- track the receptive field $R$ and jump $j$ from $R = 1$, $j = 1$ with
+  $R \leftarrow R + (K-1)\cdot j$ and $j \leftarrow j \cdot S$:
+  Conv1 $\rightarrow R = 5,\ j = 1$; Pool1 $\rightarrow R = 6,\ j = 2$;
+  Conv2 $\rightarrow R = 10,\ j = 2$; Pool2 $\rightarrow R = 12,\ j = 4$;
+  Conv3 $\rightarrow R = 20,\ j = 4$.
+
+  (c) FALSE --- there are only \emph{two} stride-2 poolings, so the global stride is
+  $2 \cdot 2 = 4$, i.e.\ $4 \times 4$. Strides compound multiplicatively over the layers that
+  actually stride; Conv3 itself has stride 1 and changes nothing.
+
+  (d) TRUE --- weights: $150 + 648 + 2\,592 = 3\,390$. Biases: one per kernel, i.e.\ per output
+  channel: $6 + 12 + 24 = 42$, giving $3\,432$ in total. Pooling layers contribute neither weights
+  nor biases.
+\end{solution}
+
+% ============================================================== Question 12 ===
+\question
+Which of the following statements are correct (multiple answers are possible)?
+
+\begin{choices}
+  \choice In FCN-style segmentation, outputs taken at several depths of the network are upsampled
+  by different factors and combined, so that fine detail from shallow layers complements the
+  context of deep layers.
+  \choice A label map may be transformed with bilinear interpolation provided the interpolated
+  values are rounded to the nearest integer label afterwards.
+  \choice Matching the mean and standard deviation of two images,
+  $f(j) = (j - \mu_j)\,\sigma_i/\sigma_j + \mu_i$, matches second-order statistics and is less
+  sensitive to outliers than min--max normalization.
+  \choice A similarity transformation has 4 degrees of freedom in 2D and 7 in 3D.
+  \choice The curl of a transformation field, $\nabla \times T$, quantifies the local volumetric
+  change induced by the transformation.
+\end{choices}
+
+\begin{solution}
+  Answer: (A), (C) and (D) are correct.
+
+  (B) is wrong, and the proposed repair makes it worse rather than better. Bilinear interpolation
+  between labels produces values that are not labels, and rounding them does not restore meaning:
+  between a voxel of label 1 and a voxel of label 3, the interpolated value $2$ rounds to label 2
+  --- possibly a completely different structure that is not even adjacent to either. Label maps are
+  transformed with nearest-neighbour interpolation, full stop.
+
+  (E) attributes the wrong quantity: the \textbf{curl} carries information about the amount of
+  \emph{infinitesimal rotation}. Local volumetric change is quantified by the \textbf{Jacobian
+  determinant} ($\det J > 1$ expansion, $< 1$ compression, $= 1$ none), with the divergence ---
+  the trace of the Jacobian --- carrying related compression/expansion information.
+\end{solution}
+
+\end{questions}
+
+\end{document}
